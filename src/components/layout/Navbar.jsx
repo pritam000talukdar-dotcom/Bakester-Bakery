@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FiShoppingCart, FiUser, FiSearch, FiMenu, FiX, FiChevronDown } from 'react-icons/fi';
+import { FiShoppingCart, FiUser, FiSearch, FiMenu, FiX, FiChevronDown, FiSettings } from 'react-icons/fi';
 import { HiStar } from 'react-icons/hi2';
 import { useCart } from '../../context/CartContext';
+import { useAuth } from '../../context/AuthContext';
 import { allProducts } from '../../data/products';
 
 const navLinks = [
@@ -141,7 +142,7 @@ function FilterDropdown({ category, setCategory, priceRange, setPriceRange, rati
 }
 
 // ── Main Navbar ──────────────────────────────────────────────
-export default function Navbar() {
+export default function Navbar({ onOpenAuthModal }) {
   const [scrolled, setScrolled]         = useState(false);
   const [mobileOpen, setMobileOpen]     = useState(false);
   const [searchOpen, setSearchOpen]     = useState(false);
@@ -156,8 +157,20 @@ export default function Navbar() {
 
   const searchBarRef = useRef(null);
   const { cartCount } = useCart();
+  const { user, profile, isAdmin } = useAuth();
   const location = useLocation();
   const navigate  = useNavigate();
+
+  // Get user initials for avatar
+  const getUserInitials = () => {
+    const name = profile?.full_name || user?.email || '';
+    return name
+      .split(' ')
+      .map((n) => n[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2) || 'U';
+  };
 
   const activeFilterCount = [category !== 'All', priceRange.label !== 'Any Price', rating > 0].filter(Boolean).length;
 
@@ -333,12 +346,44 @@ export default function Navbar() {
                 </Link>
               </motion.div>
 
-              {/* Profile */}
-              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <Link to="/profile" className="w-9 h-9 flex items-center justify-center rounded-full bg-rose-bakery text-white hover:bg-rose-dark transition-all" aria-label="Profile">
-                  <FiUser size={15} />
-                </Link>
-              </motion.div>
+              {/* Admin Link (only for admins) */}
+              {isAdmin && (
+                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                  <Link
+                    to="/admin"
+                    className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-chocolate text-white text-xs font-bold hover:bg-chocolate/80 transition-all"
+                    aria-label="Admin Panel"
+                  >
+                    <FiSettings size={12} />
+                    Admin
+                  </Link>
+                </motion.div>
+              )}
+
+              {/* Profile / Sign In */}
+              {user ? (
+                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                  <Link
+                    to="/profile"
+                    className="w-9 h-9 flex items-center justify-center rounded-full bg-rose-bakery text-white hover:bg-rose-dark transition-all text-xs font-bold"
+                    aria-label="Profile"
+                  >
+                    {getUserInitials()}
+                  </Link>
+                </motion.div>
+              ) : (
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={onOpenAuthModal}
+                  className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-full bg-rose-bakery text-white text-sm font-semibold hover:bg-rose-dark transition-all shadow-rose"
+                  aria-label="Sign In"
+                  id="navbar-signin-btn"
+                >
+                  <FiUser size={14} />
+                  Sign In
+                </motion.button>
+              )}
 
               {/* Mobile hamburger */}
               <motion.button
@@ -553,8 +598,22 @@ export default function Navbar() {
                   </motion.div>
                 ))}
               </nav>
-              <div className="p-5 border-t border-cream-200">
-                <Link to="/profile" className="btn-primary w-full text-center block">My Account</Link>
+              <div className="p-5 border-t border-cream-200 space-y-3">
+                {user ? (
+                  <Link to="/profile" className="btn-primary w-full text-center block">My Account</Link>
+                ) : (
+                  <button
+                    onClick={() => { setMobileOpen(false); onOpenAuthModal?.(); }}
+                    className="btn-primary w-full text-center block"
+                  >
+                    Sign In / Sign Up
+                  </button>
+                )}
+                {isAdmin && (
+                  <Link to="/admin" className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-chocolate text-white text-sm font-semibold hover:bg-chocolate/80 transition-all">
+                    <FiSettings size={14} /> Admin Panel
+                  </Link>
+                )}
               </div>
             </motion.div>
           </>

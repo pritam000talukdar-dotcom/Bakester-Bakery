@@ -1,45 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import AnimatedSection from '../components/ui/AnimatedSection';
-import { FiPackage, FiTruck, FiCheckCircle, FiClock, FiChevronDown, FiChevronUp } from 'react-icons/fi';
-
-const mockOrders = [
-  {
-    id: 'ORD-2024-001',
-    items: [
-      { name: 'Red Velvet Dream', qty: 1, price: 48, image: 'https://images.unsplash.com/photo-1614707267537-b85aaf00c4b7?w=80&h=80&fit=crop' },
-    ],
-    date: 'May 28, 2024',
-    status: 'Delivered',
-    total: 53,
-    address: '45 Maple Avenue, New York',
-    tracking: 'TRK-998821',
-  },
-  {
-    id: 'ORD-2024-002',
-    items: [
-      { name: 'Triple Cocoa Brownie', qty: 2, price: 28, image: 'https://images.unsplash.com/photo-1564355808539-22fda35bed7e?w=80&h=80&fit=crop' },
-      { name: 'Exotic Pineapple Cake', qty: 1, price: 49, image: 'https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=80&h=80&fit=crop' },
-    ],
-    date: 'May 20, 2024',
-    status: 'Processing',
-    total: 110,
-    address: '45 Maple Avenue, New York',
-    tracking: 'TRK-998822',
-  },
-  {
-    id: 'ORD-2024-003',
-    items: [
-      { name: 'Classic Pineapple Cream', qty: 1, price: 35, image: 'https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=80&h=80&fit=crop' },
-    ],
-    date: 'May 10, 2024',
-    status: 'Delivered',
-    total: 40,
-    address: '45 Maple Avenue, New York',
-    tracking: 'TRK-998800',
-  },
-];
+import { FiPackage, FiTruck, FiCheckCircle, FiClock, FiChevronDown } from 'react-icons/fi';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 
 const statusConfig = {
   Delivered: { color: 'text-green-700 bg-green-50', icon: FiCheckCircle, iconColor: 'text-green-600' },
@@ -59,14 +24,16 @@ function OrderCard({ order }) {
   const [expanded, setExpanded] = useState(false);
   const cfg = statusConfig[order.status] || statusConfig.Processing;
   const StatusIcon = cfg.icon;
+  const stepIndex =
+    order.status === 'Delivered' ? 3
+    : order.status === 'Shipped' ? 2
+    : order.status === 'Processing' ? 1
+    : 0;
 
-  const stepIndex = order.status === 'Delivered' ? 3 : order.status === 'Shipped' ? 2 : order.status === 'Processing' ? 1 : 0;
+  const items = Array.isArray(order.items) ? order.items : [];
 
   return (
-    <motion.div
-      layout
-      className="bg-white rounded-2xl shadow-card overflow-hidden"
-    >
+    <motion.div layout className="bg-white rounded-2xl shadow-card overflow-hidden">
       {/* Header */}
       <div
         className="p-5 cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-4"
@@ -77,8 +44,12 @@ function OrderCard({ order }) {
             <FiPackage className="text-rose-bakery" size={20} />
           </div>
           <div>
-            <p className="font-semibold text-chocolate">{order.id}</p>
-            <p className="text-xs text-chocolate/50">{order.date} · {order.items.length} item{order.items.length > 1 ? 's' : ''}</p>
+            <p className="font-semibold text-chocolate">{order.order_number}</p>
+            <p className="text-xs text-chocolate/50">
+              {new Date(order.created_at).toLocaleDateString('en-US', {
+                month: 'long', day: 'numeric', year: 'numeric',
+              })} · {items.length} item{items.length !== 1 ? 's' : ''}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -86,7 +57,7 @@ function OrderCard({ order }) {
             <StatusIcon size={11} className={cfg.iconColor} />
             {order.status}
           </span>
-          <span className="font-serif text-xl font-bold text-chocolate">${order.total}</span>
+          <span className="font-serif text-xl font-bold text-chocolate">${order.total?.toFixed(2)}</span>
           <motion.div animate={{ rotate: expanded ? 180 : 0 }}>
             <FiChevronDown className="text-chocolate/40" size={18} />
           </motion.div>
@@ -130,35 +101,38 @@ function OrderCard({ order }) {
               </div>
 
               {/* Items */}
-              <div className="space-y-3">
-                {order.items.map((item, i) => (
-                  <div key={i} className="flex items-center gap-4 p-3 bg-cream-50 rounded-xl">
-                    <img src={item.image} alt={item.name} className="w-14 h-14 object-cover rounded-lg" />
-                    <div className="flex-1">
-                      <p className="font-semibold text-sm text-chocolate">{item.name}</p>
-                      <p className="text-xs text-chocolate/50">Qty: {item.qty}</p>
+              {items.length > 0 && (
+                <div className="space-y-3">
+                  {items.map((item, i) => (
+                    <div key={i} className="flex items-center gap-4 p-3 bg-cream-50 rounded-xl">
+                      {item.image && (
+                        <img src={item.image} alt={item.name} className="w-14 h-14 object-cover rounded-lg" />
+                      )}
+                      <div className="flex-1">
+                        <p className="font-semibold text-sm text-chocolate">{item.name}</p>
+                        <p className="text-xs text-chocolate/50">Qty: {item.qty || item.quantity || 1}</p>
+                      </div>
+                      <p className="font-bold text-chocolate">
+                        ${((item.price || 0) * (item.qty || item.quantity || 1)).toFixed(2)}
+                      </p>
                     </div>
-                    <p className="font-bold text-chocolate">${item.price * item.qty}</p>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
 
               {/* Delivery & Tracking */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                <div className="p-3 bg-cream-50 rounded-xl">
-                  <p className="text-xs text-chocolate/50 mb-1">Delivery Address</p>
-                  <p className="text-chocolate font-medium">{order.address}</p>
-                </div>
-                <div className="p-3 bg-cream-50 rounded-xl">
-                  <p className="text-xs text-chocolate/50 mb-1">Tracking Number</p>
-                  <p className="text-chocolate font-mono font-bold">{order.tracking}</p>
-                </div>
-              </div>
-
-              <div className="flex gap-3">
-                <button className="btn-outline text-sm flex-1">Reorder</button>
-                {order.status !== 'Delivered' && (
-                  <button className="btn-ghost text-sm text-red-500 hover:text-red-700">Cancel Order</button>
+                {order.address && (
+                  <div className="p-3 bg-cream-50 rounded-xl">
+                    <p className="text-xs text-chocolate/50 mb-1">Delivery Address</p>
+                    <p className="text-chocolate font-medium">{order.address}</p>
+                  </div>
+                )}
+                {order.tracking && (
+                  <div className="p-3 bg-cream-50 rounded-xl">
+                    <p className="text-xs text-chocolate/50 mb-1">Tracking Number</p>
+                    <p className="text-chocolate font-mono font-bold">{order.tracking}</p>
+                  </div>
                 )}
               </div>
             </div>
@@ -170,10 +144,35 @@ function OrderCard({ order }) {
 }
 
 export default function Orders() {
+  const { user } = useAuth();
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
-  const filters = ['All', 'Processing', 'Delivered', 'Cancelled'];
+  const filters = ['All', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
 
-  const filtered = filter === 'All' ? mockOrders : mockOrders.filter(o => o.status === filter);
+  useEffect(() => {
+    const fetchOrders = async () => {
+      if (!user) return;
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('orders')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        setOrders(data || []);
+      } catch (err) {
+        console.error('Error fetching orders:', err.message);
+        setOrders([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchOrders();
+  }, [user]);
+
+  const filtered = filter === 'All' ? orders : orders.filter((o) => o.status === filter);
 
   return (
     <main className="pt-20 min-h-screen bg-cream-50">
@@ -203,25 +202,37 @@ export default function Orders() {
             ))}
           </div>
 
-          {/* Order list */}
-          <div className="space-y-4">
-            {filtered.length === 0 ? (
-              <div className="text-center py-16 bg-white rounded-2xl">
-                <div className="text-5xl mb-4">📦</div>
-                <h3 className="font-serif text-xl font-bold text-chocolate mb-2">No orders found</h3>
-                <p className="text-chocolate/50 mb-6">You don't have any {filter.toLowerCase()} orders.</p>
-                <Link to="/products" className="btn-primary inline-block">
-                  Shop Now
-                </Link>
-              </div>
-            ) : (
-              filtered.map((order) => (
-                <AnimatedSection key={order.id}>
-                  <OrderCard order={order} />
-                </AnimatedSection>
-              ))
-            )}
-          </div>
+          {/* Loading skeleton */}
+          {loading ? (
+            <div className="space-y-4">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-20 bg-white rounded-2xl shadow-card animate-pulse" />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {filtered.length === 0 ? (
+                <div className="text-center py-16 bg-white rounded-2xl">
+                  <div className="text-5xl mb-4">📦</div>
+                  <h3 className="font-serif text-xl font-bold text-chocolate mb-2">
+                    {orders.length === 0 ? 'No orders yet' : 'No orders found'}
+                  </h3>
+                  <p className="text-chocolate/50 mb-6">
+                    {orders.length === 0
+                      ? "You haven't placed any orders yet. Start shopping!"
+                      : `You don't have any ${filter.toLowerCase()} orders.`}
+                  </p>
+                  <Link to="/products" className="btn-primary inline-block">Shop Now</Link>
+                </div>
+              ) : (
+                filtered.map((order) => (
+                  <AnimatedSection key={order.id}>
+                    <OrderCard order={order} />
+                  </AnimatedSection>
+                ))
+              )}
+            </div>
+          )}
         </AnimatedSection>
       </div>
     </main>

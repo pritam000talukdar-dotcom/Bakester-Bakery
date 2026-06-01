@@ -1,7 +1,10 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CartProvider } from './context/CartContext';
+import { AuthProvider } from './context/AuthContext';
+import AuthModal from './components/auth/AuthModal';
+import ProtectedRoute, { AdminRoute } from './components/auth/ProtectedRoute';
 import Navbar from './components/layout/Navbar';
 import Footer from './components/layout/Footer';
 import Home from './pages/Home';
@@ -12,6 +15,7 @@ import Contact from './pages/Contact';
 import Profile from './pages/Profile';
 import Orders from './pages/Orders';
 import Cart from './pages/Cart';
+import AdminDashboard from './pages/admin/AdminDashboard';
 
 // Scroll to top on route change
 function ScrollToTop() {
@@ -40,12 +44,12 @@ function PageWrapper({ children }) {
   );
 }
 
-function AppRoutes() {
+function AppRoutes({ onOpenAuthModal }) {
   const location = useLocation();
   return (
     <>
       <ScrollToTop />
-      <Navbar />
+      <Navbar onOpenAuthModal={onOpenAuthModal} />
       <PageWrapper>
         <Routes location={location} key={location.pathname}>
           <Route path="/" element={<Home />} />
@@ -53,9 +57,31 @@ function AppRoutes() {
           <Route path="/products" element={<Products />} />
           <Route path="/speciality-cakes" element={<SpecialityCakes />} />
           <Route path="/contact" element={<Contact />} />
-          <Route path="/profile" element={<Profile />} />
-          <Route path="/orders" element={<Orders />} />
           <Route path="/cart" element={<Cart />} />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <Profile />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/orders"
+            element={
+              <ProtectedRoute>
+                <Orders />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <AdminRoute>
+                <AdminDashboard />
+              </AdminRoute>
+            }
+          />
           {/* 404 fallback */}
           <Route
             path="*"
@@ -76,11 +102,19 @@ function AppRoutes() {
 }
 
 export default function App() {
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+
+  const openAuthModal = useCallback(() => setAuthModalOpen(true), []);
+  const closeAuthModal = useCallback(() => setAuthModalOpen(false), []);
+
   return (
     <BrowserRouter>
-      <CartProvider>
-        <AppRoutes />
-      </CartProvider>
+      <AuthProvider onOpenModal={openAuthModal}>
+        <CartProvider>
+          <AppRoutes onOpenAuthModal={openAuthModal} />
+          <AuthModal isOpen={authModalOpen} onClose={closeAuthModal} />
+        </CartProvider>
+      </AuthProvider>
     </BrowserRouter>
   );
 }
