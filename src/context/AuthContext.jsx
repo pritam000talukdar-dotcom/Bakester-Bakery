@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext(null);
@@ -10,12 +10,18 @@ export const AuthProvider = ({ children, onOpenModal }) => {
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
 
-  // Fetch profile from Supabase
+  // Track whether we already fetched for the initial session bootstrap so
+  // onAuthStateChange doesn't duplicate the request on page load.
+  // We intentionally do NOT skip subsequent manual refresh calls.
+  const initialFetchDone = useRef(false);
+
+  // Fetch profile from Supabase — select only the columns we need
   const fetchProfile = useCallback(async (userId) => {
+    if (!userId) return;
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('*')
+        .select('id, full_name, phone, address, is_admin, updated_at')
         .eq('id', userId)
         .single();
       if (error) throw error;
@@ -28,33 +34,66 @@ export const AuthProvider = ({ children, onOpenModal }) => {
     }
   }, []);
 
-  // Listen to auth state changes
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user.id);
-      setLoading(false);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          await fetchProfile(session.user.id);
-        } else {
-          setProfile(null);
-          setIsAdmin(false);
-        }
-        setLoading(false);
-      }
-    );
-
-    return () => subscription.unsubscribe();
+  // Public helper: force-refresh the current user's profile from the DB.
+  // Call this on pages that need the freshest admin status (e.g. Profile page).
+  const refreshProfile = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user) {
+      await fetchProfile(session.user.id);
+    }
   }, [fetchProfile]);
 
-  // Sign up
+  useEffect(() => {
+    let mounted = true;
+
+    // 1. Bootstrap immediately from the cached JWT (synchronous localStorage read)
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!mounted) return;
+      setSession(session);
+      setUser(session?.user ?? null);
+
+      if (session?.user) {
+        await fetchProfile(session.user.id);
+        initialFetchDone.current = true;
+      }
+
+      if (mounted) setLoading(false);
+    });
+
+    // 2. React to sign-in / sign-out / token-refresh events
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!mounted) return;
+
+      setSession(session);
+      setUser(session?.user ?? null);
+
+      if (session?.user) {
+        // Skip only the very first INITIAL_SESSION event if getSession() already
+        // fetched the profile above. For SIGNED_IN (fresh login) always fetch.
+        const isInitialEvent = event === 'INITIAL_SESSION';
+        if (!isInitialEvent || !initialFetchDone.current) {
+          await fetchProfile(session.user.id);
+          initialFetchDone.current = true;
+        }
+      } else {
+        initialFetchDone.current = false;
+        setProfile(null);
+        setIsAdmin(false);
+      }
+
+      if (mounted) setLoading(false);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, [fetchProfile]);
+
+  // ── Auth actions ──────────────────────────────────────────────────────────
+
   const signUp = async (email, password, fullName) => {
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -65,38 +104,38 @@ export const AuthProvider = ({ children, onOpenModal }) => {
     return data;
   };
 
-  // Sign in
+  // After signInWithPassword resolves, onAuthStateChange fires SIGNED_IN
+  // which calls fetchProfile — no extra work needed here.
   const signIn = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
     return data;
   };
 
-  // Sign out
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
+    initialFetchDone.current = false;
     setUser(null);
     setProfile(null);
     setSession(null);
     setIsAdmin(false);
   };
 
-  // Update profile
   const updateProfile = async (updates) => {
     if (!user) throw new Error('Not authenticated');
     const { data, error } = await supabase
       .from('profiles')
       .update({ ...updates, updated_at: new Date().toISOString() })
       .eq('id', user.id)
-      .select()
+      .select('id, full_name, phone, address, is_admin, updated_at')
       .single();
     if (error) throw error;
     setProfile(data);
+    setIsAdmin(data?.is_admin === true);
     return data;
   };
 
-  // Request password reset
   const resetPassword = async (email) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/reset-password`,
@@ -116,6 +155,7 @@ export const AuthProvider = ({ children, onOpenModal }) => {
     updateProfile,
     resetPassword,
     fetchProfile,
+    refreshProfile,
     openAuthModal: onOpenModal,
   };
 

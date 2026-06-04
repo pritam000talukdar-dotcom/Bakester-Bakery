@@ -132,7 +132,7 @@ export default function AuthModal({ isOpen, onClose }) {
     try {
       await signIn(siEmail, siPassword);
       setSuccess('Welcome back! 🎂');
-      setTimeout(onClose, 1000);
+      setTimeout(onClose, 500);
     } catch (err) {
       setGlobalError(err.message === 'Invalid login credentials'
         ? 'Incorrect email or password. Please try again.'

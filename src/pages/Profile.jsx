@@ -21,14 +21,32 @@ const statusColors = {
 };
 
 export default function Profile() {
-  const { user, profile, isAdmin, updateProfile, signOut } = useAuth();
+  const { user, profile, updateProfile, signOut } = useAuth();
   const [activeTab, setActiveTab] = useState('profile');
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [recentOrders, setRecentOrders] = useState([]);
-  const [ordersLoading, setOrdersLoading] = useState(true);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+
+  // Direct local admin check — independent of context caching.
+  // Runs as soon as user.id is confirmed (ProtectedRoute guarantees user exists).
+  const [isAdminLocal, setIsAdminLocal] = useState(false);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    supabase
+      .from('profiles')
+      .select('is_admin')
+      .eq('id', user.id)
+      .single()
+      .then(({ data, error }) => {
+        if (!error && data) {
+          setIsAdminLocal(data.is_admin === true);
+        }
+      });
+  }, [user?.id]);
 
   const [form, setForm] = useState({
     full_name: '',
@@ -47,29 +65,31 @@ export default function Profile() {
     }
   }, [profile]);
 
-  // Fetch recent orders
+  // Fetch recent orders — only runs when user.id is known
   useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
     const fetchOrders = async () => {
-      if (!user) return;
       setOrdersLoading(true);
       try {
         const { data, error } = await supabase
           .from('orders')
-          .select('*')
+          .select('id, order_number, created_at, status, total')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false })
           .limit(3);
         if (error) throw error;
-        setRecentOrders(data || []);
+        if (!cancelled) setRecentOrders(data || []);
       } catch (err) {
         console.error('Error fetching orders:', err.message);
-        setRecentOrders([]);
+        if (!cancelled) setRecentOrders([]);
       } finally {
-        setOrdersLoading(false);
+        if (!cancelled) setOrdersLoading(false);
       }
     };
     fetchOrders();
-  }, [user]);
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -349,8 +369,16 @@ export default function Profile() {
                   {profile?.full_name || user?.email?.split('@')[0] || 'User'}
                 </h3>
                 <p className="text-xs text-chocolate/50 mt-1">{joinedDate}</p>
-                <div className="mt-3 inline-flex items-center gap-1 px-3 py-1 bg-rose-pale rounded-full">
-                  <span className="text-xs text-rose-bakery font-semibold">Club Member ✓</span>
+                <div className="mt-3 flex flex-col items-center gap-2">
+                  <div className="inline-flex items-center gap-1 px-3 py-1 bg-rose-pale rounded-full">
+                    <span className="text-xs text-rose-bakery font-semibold">Club Member ✓</span>
+                  </div>
+                  {isAdminLocal && (
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 border border-amber-300 rounded-full">
+                      <FiLayers size={11} className="text-amber-600" />
+                      <span className="text-xs text-amber-700 font-bold tracking-wide">ADMIN</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -375,7 +403,7 @@ export default function Profile() {
               </nav>
 
               {/* Admin quick access — only visible to admin users */}
-              {isAdmin && (
+              {isAdminLocal && (
                 <motion.div
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -383,20 +411,20 @@ export default function Profile() {
                 >
                   <Link
                     to="/admin"
-                    className="block bg-gradient-to-br from-[#1a1a24] to-[#2a1a24] rounded-2xl p-4 group hover:shadow-xl transition-all border border-white/5"
+                    className="block bg-gradient-to-br from-[#1a1a24] to-[#2d1030] rounded-2xl p-4 group hover:shadow-2xl hover:shadow-rose-bakery/20 transition-all border border-rose-bakery/20 ring-1 ring-rose-bakery/10"
                   >
                     <div className="flex items-center gap-3 mb-3">
-                      <div className="w-9 h-9 bg-rose-bakery/20 rounded-xl flex items-center justify-center">
+                      <div className="w-9 h-9 bg-rose-bakery/30 rounded-xl flex items-center justify-center">
                         <FiLayers size={17} className="text-rose-bakery" />
                       </div>
                       <div>
                         <p className="text-xs font-bold text-white">Admin Panel</p>
-                        <p className="text-[10px] text-white/30">Inventory & Orders</p>
+                        <p className="text-[10px] text-rose-bakery/60">Inventory &amp; Orders</p>
                       </div>
                     </div>
                     <div className="flex items-center justify-between">
-                      <p className="text-[11px] text-white/40">Manage products, pricing &amp; stock</p>
-                      <FiArrowRight size={13} className="text-rose-bakery opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <p className="text-[11px] text-white/50">Manage products, pricing &amp; stock</p>
+                      <FiArrowRight size={14} className="text-rose-bakery group-hover:translate-x-1 transition-transform" />
                     </div>
                   </Link>
                 </motion.div>
