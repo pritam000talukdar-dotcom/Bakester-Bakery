@@ -3,16 +3,16 @@ import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FiArrowRight, FiChevronLeft, FiChevronRight, FiSearch, FiChevronDown } from 'react-icons/fi';
 import { HiStar } from 'react-icons/hi2';
-import { allProducts } from '../../data/products';
+import { useProducts } from '../../context/ProductsContext';
 
 // ── Filter constants (shared with navbar) ────────────────────
-const FILTER_CATEGORIES = ['All', 'Cakes', 'Brownies', 'Tarts', 'Celebration'];
+const FILTER_CATEGORIES = ['All', 'Cakes', 'Brownies', 'Tarts', 'Celebration', 'Speciality'];
 const PRICE_RANGES = [
-  { label: 'Any Price', min: 0,  max: Infinity },
-  { label: 'Under $35', min: 0,  max: 35 },
-  { label: '$35 – $50', min: 35, max: 50 },
-  { label: '$50 – $80', min: 50, max: 80 },
-  { label: '$80+',      min: 80, max: Infinity },
+  { label: 'Any Price',      min: 0,    max: Infinity },
+  { label: 'Under ₹1,000',  min: 0,    max: 1000 },
+  { label: '₹1,000 – ₹2,000', min: 1000, max: 2000 },
+  { label: '₹2,000 – ₹4,000', min: 2000, max: 4000 },
+  { label: '₹4,000+',        min: 4000, max: Infinity },
 ];
 const RATINGS = [
   { label: 'Any Rating', value: 0 },
@@ -25,19 +25,19 @@ const RATINGS = [
 const heroSlides = [
   {
     id: 1,
-    eyebrow: 'Artisanal Craftsmanship Since 2012',
-    title: 'Handcrafted Heritage in Every Bite',
-    subtitle: 'Discover the artisan art of traditional French patisserie. From hand-spun croissants to masterfully crafted celebration cakes.',
-    cta: 'Explore Collection',
+    eyebrow: 'Homemade with Love, Every Single Day',
+    title: "Bakester — A Mom's Bakery",
+    subtitle: "Every cake, brownie and tart is lovingly baked at home from scratch \u2014 using grandma's recipes, the freshest local ingredients, and a generous handful of heart.",
+    cta: 'Explore Our Bakes',
     ctaLink: '/products',
     image: 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=800&h=600&fit=crop',
     bg: 'from-cream-100 via-rose-pale/30 to-cream-200',
   },
   {
     id: 2,
-    eyebrow: 'Seasonal Specials',
-    title: 'Baked with Heart, Served with Sincerity',
-    subtitle: 'At Bakester Bakery, we believe in the simple pleasure of a perfectly baked pastry. Our finest ingredients make every bite unforgettable.',
+    eyebrow: 'Small Batch · Big Heart',
+    title: 'Beautiful Creations, Made at Home',
+    subtitle: "From delicate celebration cakes to fudgy brownies and buttery tarts \u2014 every creation at Bakester is handcrafted in small batches to ensure it's perfect just for you.",
     cta: 'View Specialities',
     ctaLink: '/speciality-cakes',
     image: 'https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=800&h=600&fit=crop',
@@ -47,7 +47,7 @@ const heroSlides = [
     id: 3,
     eyebrow: 'Celebration Masterpieces',
     title: 'Make Your Special Moment Unforgettable',
-    subtitle: 'Custom wedding cakes, birthday creations, and event centrepieces crafted with passion and precision.',
+    subtitle: "Birthdays, anniversaries, weddings \u2014 let us bake the centrepiece of your most precious memories. Custom designs, personal flavours, crafted with a mother's care.",
     cta: 'Order Custom Cake',
     ctaLink: '/speciality-cakes',
     image: 'https://images.unsplash.com/photo-1535141192574-5d4897c12636?w=800&h=600&fit=crop',
@@ -61,6 +61,7 @@ const POPULAR_TAGS = ['Birthday Cake', 'Brownies', 'Red Velvet', 'Wedding Cake',
 export default function Hero() {
   const [current, setCurrent]   = useState(0);
   const [direction, setDirection] = useState(1);
+  const { products } = useProducts();
 
   // search + filter state
   const [searchQuery, setSearchQuery]     = useState('');
@@ -80,13 +81,13 @@ export default function Hero() {
     return () => clearInterval(t);
   }, []);
 
-  // live search
+  // live search against Supabase products
   useEffect(() => {
     const q = searchQuery.trim().toLowerCase();
     if (q.length < 2) { setSearchResults([]); return; }
-    let list = allProducts.filter(
+    let list = products.filter(
       (p) =>
-        p.name.toLowerCase().includes(q) ||
+        p.name?.toLowerCase().includes(q) ||
         p.category?.toLowerCase().includes(q) ||
         p.description?.toLowerCase().includes(q)
     );
@@ -94,7 +95,7 @@ export default function Hero() {
     if (priceRange.label !== 'Any Price') list = list.filter((p) => p.price >= priceRange.min && p.price <= priceRange.max);
     if (rating > 0)                       list = list.filter((p) => (p.rating || 0) >= rating);
     setSearchResults(list.slice(0, 5));
-  }, [searchQuery, category, priceRange, rating]);
+  }, [searchQuery, category, priceRange, rating, products]);
 
   // click outside closes filter+results
   useEffect(() => {
@@ -170,7 +171,7 @@ export default function Hero() {
                 {slide.eyebrow}
               </motion.p>
 
-              <h1 className="font-serif text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-bold text-chocolate leading-[1.1]">
+              <h1 className="font-serif text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-bold text-chocolate leading-[1.1] whitespace-pre-line">
                 {slide.title}
               </h1>
 
@@ -380,10 +381,10 @@ export default function Hero() {
                             onClick={() => handleResultClick(product)}
                             className="w-full flex items-center gap-3 px-4 py-3 hover:bg-cream-50 transition-colors text-left border-b border-cream-100 last:border-0 group"
                           >
-                            <img src={product.image} alt={product.name} className="w-12 h-12 rounded-xl object-cover flex-shrink-0" />
+                            <img src={product.image_url || product.image} alt={product.name} className="w-12 h-12 rounded-xl object-cover flex-shrink-0" />
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-semibold text-chocolate truncate group-hover:text-rose-bakery transition-colors">{product.name}</p>
-                              <p className="text-[11px] text-chocolate/50">{product.category} · ${product.price?.toFixed(2)}</p>
+                              <p className="text-[11px] text-chocolate/50">{product.category} · ₹{product.price?.toFixed(0)}</p>
                             </div>
                             <div className="flex-shrink-0 flex items-center gap-1 bg-rose-pale px-2 py-0.5 rounded-full">
                               <HiStar size={11} className="text-gold" />
@@ -445,9 +446,9 @@ export default function Hero() {
               {/* Stats */}
               <div className="flex items-center gap-8 pt-4 border-t border-chocolate/10">
                 {[
-                  { label: 'Years of Craft', value: '12+' },
-                  { label: 'Happy Clients',  value: '10K+' },
-                  { label: 'Recipes',        value: '200+' },
+                  { label: 'Homemade Recipes', value: '50+' },
+                  { label: 'Happy Families',   value: '2K+' },
+                  { label: 'Love Baked In',    value: '100%' },
                 ].map((stat) => (
                   <div key={stat.label}>
                     <p className="font-serif text-2xl font-bold text-chocolate">{stat.value}</p>

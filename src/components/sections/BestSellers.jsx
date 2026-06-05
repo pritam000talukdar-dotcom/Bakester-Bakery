@@ -1,16 +1,24 @@
-import React, { useState, useRef } from 'react';
+import React, { useRef } from 'react';
 import { motion } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import { FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import AnimatedSection from '../ui/AnimatedSection';
 import ProductCard from '../ui/ProductCard';
-import { bestSellers } from '../../data/products';
+import { useProducts } from '../../context/ProductsContext';
 
 export default function BestSellers() {
   const scrollRef = useRef(null);
+  const { products, loading } = useProducts();
+
+  // Show top-rated in-stock products (up to 6)
+  const featured = [...products]
+    .filter((p) => p.in_stock !== false)
+    .sort((a, b) => (b.rating || 0) - (a.rating || 0))
+    .slice(0, 6);
 
   const scroll = (dir) => {
     if (scrollRef.current) {
-      scrollRef.current.scrollBy({ left: dir * 300, behavior: 'smooth' });
+      scrollRef.current.scrollBy({ left: dir * 320, behavior: 'smooth' });
     }
   };
 
@@ -47,25 +55,47 @@ export default function BestSellers() {
           </div>
         </AnimatedSection>
 
-        {/* Scrollable product row */}
-        <div
-          ref={scrollRef}
-          className="flex gap-6 overflow-x-auto pb-4 scrollbar-hide snap-x snap-mandatory"
-          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-        >
-          {bestSellers.map((product, i) => (
-            <motion.div
-              key={product.id}
-              initial={{ opacity: 0, y: 30 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, amount: 0.2 }}
-              transition={{ delay: i * 0.12 }}
-              className="min-w-[280px] sm:min-w-[300px] snap-start"
-            >
-              <ProductCard product={product} />
-            </motion.div>
-          ))}
-        </div>
+        {/* Loading skeleton */}
+        {loading ? (
+          <div className="flex gap-6 overflow-x-hidden">
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="min-w-[280px] sm:min-w-[300px] h-72 bg-cream-100 rounded-2xl animate-pulse flex-shrink-0"
+              />
+            ))}
+          </div>
+        ) : featured.length === 0 ? (
+          <div className="text-center py-16 bg-white rounded-3xl">
+            <p className="text-4xl mb-3">🎂</p>
+            <p className="text-chocolate/60">
+              Our fresh collection is coming soon!
+            </p>
+            <Link to="/products" className="btn-primary mt-4 inline-block">
+              Browse All
+            </Link>
+          </div>
+        ) : (
+          /* Scrollable product row */
+          <div
+            ref={scrollRef}
+            className="flex gap-6 overflow-x-auto pb-4 scrollbar-hide snap-x snap-mandatory"
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          >
+            {featured.map((product, i) => (
+              <motion.div
+                key={product.id}
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.2 }}
+                transition={{ delay: i * 0.1 }}
+                className="min-w-[280px] sm:min-w-[300px] snap-start"
+              >
+                <ProductCard product={product} />
+              </motion.div>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );

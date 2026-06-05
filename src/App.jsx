@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CartProvider } from './context/CartContext';
 import { AuthProvider } from './context/AuthContext';
+import { ProductsProvider } from './context/ProductsContext';
 import AuthModal from './components/auth/AuthModal';
 import ProtectedRoute, { AdminRoute } from './components/auth/ProtectedRoute';
 import Navbar from './components/layout/Navbar';
@@ -110,10 +111,12 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider onOpenModal={openAuthModal}>
-        <CartProvider>
-          <AppRoutes onOpenAuthModal={openAuthModal} />
-          <AuthModal isOpen={authModalOpen} onClose={closeAuthModal} />
-        </CartProvider>
+        <ProductsProvider>
+          <CartProvider>
+            <AppRoutes onOpenAuthModal={openAuthModal} />
+            <AuthModal isOpen={authModalOpen} onClose={closeAuthModal} />
+          </CartProvider>
+        </ProductsProvider>
       </AuthProvider>
     </BrowserRouter>
   );

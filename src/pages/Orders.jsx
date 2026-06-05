@@ -57,7 +57,7 @@ function OrderCard({ order }) {
             <StatusIcon size={11} className={cfg.iconColor} />
             {order.status}
           </span>
-          <span className="font-serif text-xl font-bold text-chocolate">${order.total?.toFixed(2)}</span>
+          <span className="font-serif text-xl font-bold text-chocolate">₹{order.total?.toFixed(0)}</span>
           <motion.div animate={{ rotate: expanded ? 180 : 0 }}>
             <FiChevronDown className="text-chocolate/40" size={18} />
           </motion.div>
@@ -113,7 +113,7 @@ function OrderCard({ order }) {
                         <p className="text-xs text-chocolate/50">Qty: {item.qty || item.quantity || 1}</p>
                       </div>
                       <p className="font-bold text-chocolate">
-                        ${((item.price || 0) * (item.qty || item.quantity || 1)).toFixed(2)}
+                        ₹{((item.price || 0) * (item.qty || item.quantity || 1)).toFixed(0)}
                       </p>
                     </div>
                   ))}

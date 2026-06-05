@@ -1,33 +1,26 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FiSearch, FiSliders, FiX, FiChevronDown, FiStar } from 'react-icons/fi';
+import { FiSearch, FiSliders, FiX, FiChevronDown, FiStar, FiRefreshCw } from 'react-icons/fi';
 import { HiStar } from 'react-icons/hi2';
 import AnimatedSection from '../components/ui/AnimatedSection';
 import ProductCard from '../components/ui/ProductCard';
 import { useCart } from '../context/CartContext';
-import {
-  allProducts,
-  signatureCollection,
-  classicCakes,
-  celebrationCakes,
-} from '../data/products';
+import { useProducts } from '../context/ProductsContext';
 
 // ── Filter constants
-const CATEGORIES = ['All', 'Cakes', 'Brownies', 'Tarts', 'Celebration'];
 const PRICE_RANGES = [
-  { label: 'Any Price', min: 0, max: Infinity },
-  { label: 'Under $35', min: 0, max: 35 },
+  { label: 'Any Price',  min: 0,  max: Infinity },
+  { label: 'Under $35', min: 0,  max: 35 },
   { label: '$35 – $50', min: 35, max: 50 },
   { label: '$50 – $80', min: 50, max: 80 },
-  { label: '$80+', min: 80, max: Infinity },
+  { label: '$80+',      min: 80, max: Infinity },
 ];
 const SORT_OPTIONS = [
-  { label: 'Featured', value: 'featured' },
+  { label: 'Newest',             value: 'newest' },
   { label: 'Price: Low to High', value: 'price-asc' },
   { label: 'Price: High to Low', value: 'price-desc' },
-  { label: 'Highest Rated', value: 'rating-desc' },
-  { label: 'Most Reviewed', value: 'reviews-desc' },
+  { label: 'Highest Rated',      value: 'rating-desc' },
 ];
 
 // ── Rating filter stars component
@@ -53,9 +46,7 @@ function RatingFilter({ value, onChange }) {
               />
             ))}
           </span>
-          <span>
-            {r === 0 ? 'Any rating' : `${r}+ stars`}
-          </span>
+          <span>{r === 0 ? 'Any rating' : `${r}+ stars`}</span>
         </button>
       ))}
     </div>
@@ -65,20 +56,29 @@ function RatingFilter({ value, onChange }) {
 export default function Products() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { addItem } = useCart();
+  const { products, loading, error, refetch } = useProducts();
 
   // ── Filter state
-  const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '');
-  const [activeCategory, setActiveCategory] = useState('All');
-  const [priceRange, setPriceRange] = useState(PRICE_RANGES[0]);
-  const [minRating, setMinRating] = useState(0);
-  const [sortBy, setSortBy] = useState('featured');
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [searchQuery,    setSearchQuery]    = useState(searchParams.get('q') || '');
+  const [activeCategory, setActiveCategory] = useState(searchParams.get('category') || 'All');
+  const [priceRange,     setPriceRange]     = useState(PRICE_RANGES[0]);
+  const [minRating,      setMinRating]      = useState(0);
+  const [sortBy,         setSortBy]         = useState('newest');
+  const [filtersOpen,    setFiltersOpen]    = useState(false);
 
-  // Sync search query from URL param
+  // Sync URL params
   useEffect(() => {
-    const q = searchParams.get('q') || '';
+    const q   = searchParams.get('q') || '';
+    const cat = searchParams.get('category') || 'All';
     setSearchQuery(q);
+    setActiveCategory(cat);
   }, [searchParams]);
+
+  // Derive categories from live products
+  const CATEGORIES = useMemo(() => {
+    const cats = [...new Set(products.map((p) => p.category).filter(Boolean))];
+    return ['All', ...cats];
+  }, [products]);
 
   // ── Active filter count badge
   const activeFilterCount = [
@@ -89,14 +89,14 @@ export default function Products() {
 
   // ── Filtered + sorted products
   const filteredProducts = useMemo(() => {
-    let list = [...allProducts];
+    let list = [...products];
 
     // Search
     const q = searchQuery.trim().toLowerCase();
     if (q) {
       list = list.filter(
         (p) =>
-          p.name.toLowerCase().includes(q) ||
+          p.name?.toLowerCase().includes(q) ||
           p.category?.toLowerCase().includes(q) ||
           p.description?.toLowerCase().includes(q)
       );
@@ -117,22 +117,31 @@ export default function Products() {
 
     // Sort
     switch (sortBy) {
-      case 'price-asc':  list.sort((a, b) => a.price - b.price); break;
-      case 'price-desc': list.sort((a, b) => b.price - a.price); break;
+      case 'price-asc':   list.sort((a, b) => a.price - b.price); break;
+      case 'price-desc':  list.sort((a, b) => b.price - a.price); break;
       case 'rating-desc': list.sort((a, b) => (b.rating || 0) - (a.rating || 0)); break;
-      case 'reviews-desc': list.sort((a, b) => (b.reviews || 0) - (a.reviews || 0)); break;
-      default: break;
+      default: break; // 'newest' — already sorted by created_at desc from API
     }
 
     return list;
-  }, [searchQuery, activeCategory, priceRange, minRating, sortBy]);
+  }, [products, searchQuery, activeCategory, priceRange, minRating, sortBy]);
+
+  // Group by category for sections below the main search grid
+  const groupByCategory = (cat) =>
+    products
+      .filter((p) => p.category === cat)
+      .sort((a, b) => (b.rating || 0) - (a.rating || 0));
+
+  const signatureProducts  = groupByCategory('Speciality').slice(0, 4);
+  const cakeProducts       = groupByCategory('Cakes').slice(0, 4);
+  const celebrationProducts = groupByCategory('Celebration').slice(0, 4);
 
   const clearAllFilters = () => {
     setSearchQuery('');
     setActiveCategory('All');
     setPriceRange(PRICE_RANGES[0]);
     setMinRating(0);
-    setSortBy('featured');
+    setSortBy('newest');
     setSearchParams({});
   };
 
@@ -140,6 +149,47 @@ export default function Products() {
     e.preventDefault();
     setSearchParams(searchQuery ? { q: searchQuery } : {});
   };
+
+  // ── Loading skeleton
+  if (loading) {
+    return (
+      <main className="pt-20 min-h-screen">
+        <section className="py-16 bg-gradient-to-br from-cream-100 to-rose-pale/20 text-center">
+          <div className="max-w-4xl mx-auto px-4">
+            <div className="h-8 bg-cream-200 rounded-xl w-64 mx-auto mb-4 animate-pulse" />
+            <div className="h-4 bg-cream-200 rounded-xl w-96 mx-auto animate-pulse" />
+          </div>
+        </section>
+        <section className="py-12 bg-white">
+          <div className="max-w-7xl mx-auto px-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
+              {[1,2,3,4,5,6].map((i) => (
+                <div key={i} className="h-80 bg-cream-100 rounded-2xl animate-pulse" />
+              ))}
+            </div>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  // ── Error state
+  if (error) {
+    return (
+      <main className="pt-20 min-h-screen flex items-center justify-center bg-cream-50">
+        <div className="text-center py-20">
+          <p className="text-4xl mb-4">😕</p>
+          <h2 className="font-serif text-2xl font-bold text-chocolate mb-2">
+            Couldn't load products
+          </h2>
+          <p className="text-chocolate/60 mb-6">{error}</p>
+          <button onClick={refetch} className="btn-primary inline-flex items-center gap-2">
+            <FiRefreshCw size={15} /> Try Again
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="pt-20">
@@ -192,7 +242,7 @@ export default function Products() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col lg:flex-row gap-8">
 
-            {/* ── Filter Sidebar (desktop) / Drawer (mobile) ── */}
+            {/* ── Filter Sidebar / Drawer ── */}
             <>
               {/* Mobile filter toggle */}
               <div className="lg:hidden flex items-center gap-3 mb-2">
@@ -253,6 +303,7 @@ export default function Products() {
                       </div>
                       <div className="p-5 space-y-8 flex-1">
                         <FilterContent
+                          categories={CATEGORIES}
                           activeCategory={activeCategory} setActiveCategory={setActiveCategory}
                           priceRange={priceRange} setPriceRange={setPriceRange}
                           minRating={minRating} setMinRating={setMinRating}
@@ -284,6 +335,7 @@ export default function Products() {
                     )}
                   </div>
                   <FilterContent
+                    categories={CATEGORIES}
                     activeCategory={activeCategory} setActiveCategory={setActiveCategory}
                     priceRange={priceRange} setPriceRange={setPriceRange}
                     minRating={minRating} setMinRating={setMinRating}
@@ -347,11 +399,15 @@ export default function Products() {
                     <div className="text-6xl mb-4">🔍</div>
                     <h3 className="font-serif text-2xl font-bold text-chocolate mb-2">No results found</h3>
                     <p className="text-chocolate/60 mb-6">
-                      Try adjusting your filters or search term.
+                      {products.length === 0
+                        ? 'Our fresh collection is coming soon. Check back later!'
+                        : 'Try adjusting your filters or search term.'}
                     </p>
-                    <button onClick={clearAllFilters} className="btn-primary">
-                      Clear Filters
-                    </button>
+                    {products.length > 0 && (
+                      <button onClick={clearAllFilters} className="btn-primary">
+                        Clear Filters
+                      </button>
+                    )}
                   </motion.div>
                 ) : (
                   <motion.div
@@ -381,184 +437,233 @@ export default function Products() {
         </div>
       </section>
 
-      {/* ── Signature Collection Feature ── */}
-      <section className="py-16 bg-cream-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <AnimatedSection className="mb-10">
-            <p className="text-xs text-rose-bakery font-semibold uppercase tracking-widest mb-2">Editor's Pick</p>
-            <h2 className="section-title">The Signature Collection</h2>
-          </AnimatedSection>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {signatureCollection.map((product, i) => (
-              <AnimatedSection key={product.id} delay={i * 0.15}>
-                <motion.div
-                  whileHover={{ y: -4 }}
-                  className="group relative rounded-3xl overflow-hidden bg-cream-100 shadow-card hover:shadow-card-hover transition-all"
-                >
-                  <div className="relative h-72 overflow-hidden">
-                    <motion.img
-                      src={product.image}
-                      alt={product.name}
-                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-chocolate/60 to-transparent" />
-                    <div className="absolute top-4 left-4">
-                      <span className="badge bg-white/90 text-rose-bakery text-[10px]">{product.badge}</span>
-                    </div>
-                  </div>
-                  <div className="p-6 flex items-end justify-between">
-                    <div>
-                      <p className="text-xs text-chocolate/50 mb-1">{product.subtitle}</p>
-                      <h3 className="font-serif text-xl font-bold text-chocolate mb-1">{product.name}</h3>
-                      <p className="text-sm text-chocolate/60 leading-relaxed max-w-xs">{product.description}</p>
-                      {product.rating && (
-                        <div className="flex items-center gap-1 mt-2">
-                          {[...Array(5)].map((_, j) => (
-                            <HiStar key={j} size={13} className={j < Math.floor(product.rating) ? 'text-gold' : 'text-cream-300'} />
-                          ))}
-                          <span className="text-[11px] text-chocolate/50 ml-1">{product.rating}</span>
+      {/* ── Signature / Speciality Section ── */}
+      {signatureProducts.length > 0 && (
+        <section className="py-16 bg-cream-50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <AnimatedSection className="mb-10">
+              <p className="text-xs text-rose-bakery font-semibold uppercase tracking-widest mb-2">Editor's Pick</p>
+              <h2 className="section-title">The Signature Collection</h2>
+            </AnimatedSection>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {signatureProducts.slice(0, 2).map((product, i) => (
+                <AnimatedSection key={product.id} delay={i * 0.15}>
+                  <motion.div
+                    whileHover={{ y: -4 }}
+                    className="group relative rounded-3xl overflow-hidden bg-cream-100 shadow-card hover:shadow-card-hover transition-all"
+                  >
+                    <div className="relative h-72 overflow-hidden">
+                      <motion.img
+                        src={product.image_url || product.image}
+                        alt={product.name}
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-chocolate/60 to-transparent" />
+                      {product.badge && (
+                        <div className="absolute top-4 left-4">
+                          <span className="badge bg-white/90 text-rose-bakery text-[10px]">{product.badge}</span>
                         </div>
                       )}
                     </div>
-                    <div className="text-right flex-shrink-0 ml-4">
-                      <p className="font-serif text-2xl font-bold text-chocolate mb-2">${product.price?.toFixed(2)}</p>
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => addItem(product)}
-                        className="btn-primary text-xs px-4 py-2"
-                        aria-label={`Order ${product.name}`}
-                      >
-                        Order Now
-                      </motion.button>
-                    </div>
-                  </div>
-                </motion.div>
-              </AnimatedSection>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Classic Cakes Grid ── */}
-      <section className="py-16 bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <AnimatedSection className="mb-10">
-            <p className="text-xs text-rose-bakery font-semibold uppercase tracking-widest mb-2">Theobroma Classic Cakes</p>
-            <h2 className="section-title">Timeless recipes for new traditions.</h2>
-          </AnimatedSection>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-            {classicCakes.map((product, i) => (
-              <AnimatedSection key={product.id} delay={i * 0.1}>
-                <motion.div
-                  whileHover={{ y: -5 }}
-                  className="group bg-cream-50 rounded-2xl overflow-hidden shadow-card hover:shadow-card-hover transition-all"
-                >
-                  <div className="relative h-48 overflow-hidden">
-                    <img
-                      src={product.image}
-                      alt={product.name}
-                      className="w-full h-full object-cover transition-transform duration-400 group-hover:scale-110"
-                    />
-                    <span className="absolute top-2 left-2 text-[9px] bg-rose-bakery text-white px-2 py-0.5 rounded-full font-semibold">
-                      {product.label}
-                    </span>
-                  </div>
-                  <div className="p-4">
-                    <h3 className="font-serif text-sm font-semibold text-chocolate mb-1">{product.name}</h3>
-                    {product.rating && (
-                      <div className="flex items-center gap-0.5 mb-2">
-                        {[...Array(5)].map((_, j) => (
-                          <HiStar key={j} size={11} className={j < Math.floor(product.rating) ? 'text-gold' : 'text-cream-300'} />
-                        ))}
-                        <span className="text-[10px] text-chocolate/50 ml-1">{product.rating}</span>
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-chocolate">${product.price?.toFixed(2)}</span>
-                      <motion.button
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => addItem(product)}
-                        className="text-[11px] bg-white text-chocolate px-3 py-1.5 rounded-full hover:bg-rose-bakery hover:text-white transition-all font-semibold border border-cream-200"
-                        aria-label={`Add ${product.name} to cart`}
-                      >
-                        Add to Cart
-                      </motion.button>
-                    </div>
-                  </div>
-                </motion.div>
-              </AnimatedSection>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Celebration Masterpieces ── */}
-      <section className="py-16 bg-cream-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <AnimatedSection className="mb-10 text-center">
-            <h2 className="section-title">Celebration Masterpieces</h2>
-          </AnimatedSection>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {celebrationCakes.map((product, i) => (
-              <AnimatedSection key={product.id} delay={i * 0.15}>
-                <motion.div
-                  whileHover={{ y: -4 }}
-                  className="group relative bg-white rounded-3xl overflow-hidden shadow-card hover:shadow-card-hover transition-all"
-                >
-                  <div className="relative h-64 overflow-hidden">
-                    <img
-                      src={product.image}
-                      alt={product.name}
-                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                    />
-                  </div>
-                  <div className="p-6">
-                    <p className="text-xs text-rose-bakery font-semibold mb-1">{product.subtitle}</p>
-                    <h3 className="font-serif text-xl font-bold text-chocolate mb-2">{product.name}</h3>
-                    <p className="text-sm text-chocolate/60 mb-4 leading-relaxed">{product.description}</p>
-                    <div className="flex items-center justify-between">
+                    <div className="p-6 flex items-end justify-between">
                       <div>
-                        <span className="font-serif text-2xl font-bold text-chocolate">${product.price?.toFixed(2)}</span>
+                        <p className="text-xs text-chocolate/50 mb-1">{product.category}</p>
+                        <h3 className="font-serif text-xl font-bold text-chocolate mb-1">{product.name}</h3>
+                        <p className="text-sm text-chocolate/60 leading-relaxed max-w-xs">{product.description}</p>
                         {product.rating && (
-                          <div className="flex items-center gap-0.5 mt-1">
+                          <div className="flex items-center gap-1 mt-2">
                             {[...Array(5)].map((_, j) => (
-                              <HiStar key={j} size={12} className={j < Math.floor(product.rating) ? 'text-gold' : 'text-cream-300'} />
+                              <HiStar key={j} size={13} className={j < Math.floor(product.rating) ? 'text-gold' : 'text-cream-300'} />
                             ))}
-                            <span className="text-[11px] text-chocolate/50 ml-1">{product.rating} ({product.reviews})</span>
+                            <span className="text-[11px] text-chocolate/50 ml-1">{product.rating}</span>
                           </div>
                         )}
                       </div>
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => addItem(product)}
-                        className="btn-primary text-sm"
-                        aria-label={`Enquire about ${product.name}`}
-                      >
-                        Enquire Now
-                      </motion.button>
+                      <div className="text-right flex-shrink-0 ml-4">
+                        <p className="font-serif text-2xl font-bold text-chocolate mb-2">₹{product.price?.toFixed(0)}</p>
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => addItem({ ...product, image: product.image_url || product.image })}
+                          disabled={product.in_stock === false}
+                          className={`text-xs px-4 py-2 rounded-full font-semibold transition-all ${
+                            product.in_stock === false
+                              ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                              : 'btn-primary'
+                          }`}
+                        >
+                          {product.in_stock === false ? 'Out of Stock' : 'Order Now'}
+                        </motion.button>
+                      </div>
                     </div>
-                  </div>
-                </motion.div>
-              </AnimatedSection>
-            ))}
+                  </motion.div>
+                </AnimatedSection>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
+
+      {/* ── Classic Cakes Grid ── */}
+      {cakeProducts.length > 0 && (
+        <section className="py-16 bg-white">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <AnimatedSection className="mb-10">
+              <p className="text-xs text-rose-bakery font-semibold uppercase tracking-widest mb-2">From Our Kitchen</p>
+              <h2 className="section-title">Timeless recipes for new traditions.</h2>
+            </AnimatedSection>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+              {cakeProducts.map((product, i) => (
+                <AnimatedSection key={product.id} delay={i * 0.1}>
+                  <motion.div
+                    whileHover={{ y: -5 }}
+                    className="group bg-cream-50 rounded-2xl overflow-hidden shadow-card hover:shadow-card-hover transition-all"
+                  >
+                    <div className="relative h-48 overflow-hidden">
+                      {product.image_url || product.image ? (
+                        <img
+                          src={product.image_url || product.image}
+                          alt={product.name}
+                          className="w-full h-full object-cover transition-transform duration-400 group-hover:scale-110"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-4xl bg-cream-100">🎂</div>
+                      )}
+                      {product.badge && (
+                        <span className="absolute top-2 left-2 text-[9px] bg-rose-bakery text-white px-2 py-0.5 rounded-full font-semibold">
+                          {product.badge}
+                        </span>
+                      )}
+                      {product.in_stock === false && (
+                        <div className="absolute inset-0 bg-white/60 flex items-center justify-center">
+                          <span className="text-xs font-bold text-gray-600 bg-white px-2 py-1 rounded-full">Out of Stock</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="p-4">
+                      <h3 className="font-serif text-sm font-semibold text-chocolate mb-1">{product.name}</h3>
+                      {product.rating && (
+                        <div className="flex items-center gap-0.5 mb-2">
+                          {[...Array(5)].map((_, j) => (
+                            <HiStar key={j} size={11} className={j < Math.floor(product.rating) ? 'text-gold' : 'text-cream-300'} />
+                          ))}
+                          <span className="text-[10px] text-chocolate/50 ml-1">{product.rating}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-chocolate">₹{product.price?.toFixed(0)}</span>
+                        <motion.button
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => addItem({ ...product, image: product.image_url || product.image })}
+                          disabled={product.in_stock === false}
+                          className={`text-[11px] px-3 py-1.5 rounded-full font-semibold border transition-all ${
+                            product.in_stock === false
+                              ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                              : 'bg-white text-chocolate hover:bg-rose-bakery hover:text-white border-cream-200'
+                          }`}
+                        >
+                          {product.in_stock === false ? 'Unavailable' : 'Add to Cart'}
+                        </motion.button>
+                      </div>
+                    </div>
+                  </motion.div>
+                </AnimatedSection>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ── Celebration Masterpieces ── */}
+      {celebrationProducts.length > 0 && (
+        <section className="py-16 bg-cream-50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <AnimatedSection className="mb-10 text-center">
+              <h2 className="section-title">Celebration Masterpieces</h2>
+            </AnimatedSection>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {celebrationProducts.map((product, i) => (
+                <AnimatedSection key={product.id} delay={i * 0.15}>
+                  <motion.div
+                    whileHover={{ y: -4 }}
+                    className="group relative bg-white rounded-3xl overflow-hidden shadow-card hover:shadow-card-hover transition-all"
+                  >
+                    <div className="relative h-64 overflow-hidden">
+                      {product.image_url || product.image ? (
+                        <img
+                          src={product.image_url || product.image}
+                          alt={product.name}
+                          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-5xl bg-cream-100">🎂</div>
+                      )}
+                    </div>
+                    <div className="p-6">
+                      <p className="text-xs text-rose-bakery font-semibold mb-1">{product.badge || product.category}</p>
+                      <h3 className="font-serif text-xl font-bold text-chocolate mb-2">{product.name}</h3>
+                      <p className="text-sm text-chocolate/60 mb-4 leading-relaxed">{product.description}</p>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="font-serif text-2xl font-bold text-chocolate">₹{product.price?.toFixed(0)}</span>
+                          {product.rating && (
+                            <div className="flex items-center gap-0.5 mt-1">
+                              {[...Array(5)].map((_, j) => (
+                                <HiStar key={j} size={12} className={j < Math.floor(product.rating) ? 'text-gold' : 'text-cream-300'} />
+                              ))}
+                              <span className="text-[11px] text-chocolate/50 ml-1">{product.rating}</span>
+                            </div>
+                          )}
+                        </div>
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => addItem({ ...product, image: product.image_url || product.image })}
+                          disabled={product.in_stock === false}
+                          className={`text-sm rounded-full px-4 py-2 font-semibold transition-all ${
+                            product.in_stock === false
+                              ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                              : 'btn-primary'
+                          }`}
+                        >
+                          {product.in_stock === false ? 'Out of Stock' : 'Enquire Now'}
+                        </motion.button>
+                      </div>
+                    </div>
+                  </motion.div>
+                </AnimatedSection>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Empty state when NO products exist at all */}
+      {!loading && products.length === 0 && (
+        <section className="py-24 bg-cream-50 text-center">
+          <p className="text-6xl mb-4">🎂</p>
+          <h2 className="font-serif text-3xl font-bold text-chocolate mb-3">
+            Fresh Bakes Coming Soon!
+          </h2>
+          <p className="text-chocolate/60 max-w-sm mx-auto">
+            Our team is preparing something wonderful. Check back soon for our full collection.
+          </p>
+        </section>
+      )}
+
     </main>
   );
 }
 
-// ── Shared filter content used in both sidebar and drawer
-function FilterContent({ activeCategory, setActiveCategory, priceRange, setPriceRange, minRating, setMinRating, clearAllFilters, activeFilterCount }) {
+// ── Shared filter content
+function FilterContent({ categories, activeCategory, setActiveCategory, priceRange, setPriceRange, minRating, setMinRating, clearAllFilters, activeFilterCount }) {
   return (
     <div className="space-y-7">
       {/* Category */}
       <div>
         <h4 className="text-xs font-bold text-chocolate uppercase tracking-wider mb-3">Category</h4>
         <div className="flex flex-col gap-1">
-          {CATEGORIES.map((cat) => (
+          {categories.map((cat) => (
             <button
               key={cat}
               onClick={() => setActiveCategory(cat)}
@@ -608,7 +713,7 @@ function FilterContent({ activeCategory, setActiveCategory, priceRange, setPrice
         <RatingFilter value={minRating} onChange={setMinRating} />
       </div>
 
-      {/* Clear button (only in sidebar when filters are active) */}
+      {/* Clear button */}
       {activeFilterCount > 0 && (
         <button
           onClick={clearAllFilters}

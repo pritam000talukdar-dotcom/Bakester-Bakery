@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../lib/supabase';
 
 /**
  * Wraps children — if user is not authenticated, renders the fallback (or null)
@@ -43,12 +44,35 @@ export default function ProtectedRoute({ children, fallback = null }) {
 }
 
 /**
- * Admin-only guard — renders 403 if user is not an admin.
+ * Admin-only guard — does a direct Supabase query for is_admin so it is never
+ * affected by context caching or race conditions on page load.
  */
 export function AdminRoute({ children }) {
-  const { user, isAdmin, loading, openAuthModal } = useAuth();
+  const { user, loading: authLoading, openAuthModal } = useAuth();
 
-  if (loading) {
+  // Independent admin check — queries DB directly once user.id is known.
+  const [adminStatus, setAdminStatus] = useState('checking'); // 'checking' | 'admin' | 'not-admin'
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    setAdminStatus('checking');
+    supabase
+      .from('profiles')
+      .select('is_admin')
+      .eq('id', user.id)
+      .single()
+      .then(({ data, error }) => {
+        if (!error && data?.is_admin === true) {
+          setAdminStatus('admin');
+        } else {
+          setAdminStatus('not-admin');
+        }
+      });
+  }, [user?.id]);
+
+  // Still waiting for auth context to resolve
+  if (authLoading) {
     return (
       <main className="pt-20 min-h-screen bg-cream-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
@@ -59,6 +83,7 @@ export function AdminRoute({ children }) {
     );
   }
 
+  // Not logged in at all
   if (!user) {
     return (
       <main className="pt-20 min-h-screen bg-cream-50 flex items-center justify-center">
@@ -72,7 +97,20 @@ export function AdminRoute({ children }) {
     );
   }
 
-  if (!isAdmin) {
+  // DB query still in flight — show spinner instead of flashing Forbidden
+  if (adminStatus === 'checking') {
+    return (
+      <main className="pt-20 min-h-screen bg-cream-50 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 rounded-full border-4 border-rose-pale border-t-rose-bakery animate-spin" />
+          <p className="text-chocolate/50 text-sm font-medium">Verifying access…</p>
+        </div>
+      </main>
+    );
+  }
+
+  // User is logged in but NOT admin
+  if (adminStatus === 'not-admin') {
     return (
       <main className="pt-20 min-h-screen bg-cream-50 flex items-center justify-center">
         <div className="text-center px-6">
@@ -84,5 +122,6 @@ export function AdminRoute({ children }) {
     );
   }
 
+  // adminStatus === 'admin' — let them through
   return children;
 }

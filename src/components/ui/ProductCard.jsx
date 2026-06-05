@@ -10,9 +10,14 @@ export default function ProductCard({ product, size = 'md' }) {
   const [added, setAdded] = useState(false);
   const [heartBurst, setHeartBurst] = useState(false);
 
+  // Support both DB (image_url) and legacy (image) field names
+  const imageSrc = product.image_url || product.image || '';
+  const outOfStock = product.in_stock === false;
+
   const handleAdd = (e) => {
     e.preventDefault();
-    addItem(product);
+    if (outOfStock) return;
+    addItem({ ...product, image: imageSrc });
     setAdded(true);
     setTimeout(() => setAdded(false), 1500);
   };
@@ -33,18 +38,33 @@ export default function ProductCard({ product, size = 'md' }) {
     <motion.div
       whileHover={{ y: -6 }}
       transition={{ duration: 0.3 }}
-      className="product-card group relative"
+      className={`product-card group relative ${outOfStock ? 'opacity-75' : ''}`}
     >
       {/* ── Image area ── */}
       <div className={`relative overflow-hidden ${isLarge ? 'h-64' : 'h-52'} bg-cream-100`}>
-        <motion.img
-          src={product.image}
-          alt={product.name}
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-          loading="lazy"
-        />
+        {imageSrc ? (
+          <motion.img
+            src={imageSrc}
+            alt={product.name}
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+            loading="lazy"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-5xl bg-cream-100">
+            🎂
+          </div>
+        )}
         {/* Dark gradient on hover */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+
+        {/* Out of Stock overlay */}
+        {outOfStock && (
+          <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] flex items-center justify-center">
+            <span className="px-3 py-1.5 bg-gray-800/80 text-white text-xs font-bold rounded-full tracking-wide">
+              Out of Stock
+            </span>
+          </div>
+        )}
 
         {/* ── Like / Wishlist button — always visible ── */}
         <div className="absolute top-3 right-3">
@@ -107,7 +127,7 @@ export default function ProductCard({ product, size = 'md' }) {
         </div>
 
         {/* Tag/Badge — top left */}
-        {(product.tag || product.badge) && (
+        {(product.tag || product.badge) && !outOfStock && (
           <span className={`absolute top-3 left-3 badge text-[10px] ${
             product.tag ? 'bg-rose-bakery text-white' : 'bg-chocolate text-white'
           }`}>
@@ -147,7 +167,8 @@ export default function ProductCard({ product, size = 'md' }) {
               />
             ))}
             <span className="text-[11px] text-chocolate/50 ml-0.5">
-              {product.rating} ({product.reviews})
+              {product.rating}
+              {product.reviews ? ` (${product.reviews})` : ''}
             </span>
           </div>
         )}
@@ -155,21 +176,24 @@ export default function ProductCard({ product, size = 'md' }) {
         {/* Price + Add to Cart */}
         <div className="flex items-center justify-between mt-2">
           <span className="font-serif text-lg font-bold text-chocolate">
-            ${product.price?.toFixed(2)}
+            ₹{product.price?.toFixed(0)}
           </span>
           <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+            whileHover={outOfStock ? {} : { scale: 1.05 }}
+            whileTap={outOfStock ? {} : { scale: 0.95 }}
             onClick={handleAdd}
+            disabled={outOfStock}
             className={`flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-full transition-all duration-300 ${
-              added
+              outOfStock
+                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                : added
                 ? 'bg-green-500 text-white'
                 : 'bg-rose-bakery text-white hover:bg-rose-dark'
             }`}
-            aria-label={`Add ${product.name} to cart`}
+            aria-label={outOfStock ? `${product.name} is out of stock` : `Add ${product.name} to cart`}
           >
             <FiShoppingCart size={13} />
-            {added ? 'Added! ✓' : 'Add to Cart'}
+            {outOfStock ? 'Out of Stock' : added ? 'Added! ✓' : 'Add to Cart'}
           </motion.button>
         </div>
       </div>
