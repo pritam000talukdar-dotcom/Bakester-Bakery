@@ -47,7 +47,7 @@ function AppRoutes({ onOpenAuthModal }) {
       <Navbar onOpenAuthModal={onOpenAuthModal} />
       {/* Suspense wraps lazy routes — each page chunk loads on demand */}
       <Suspense fallback={<PageFallback />}>
-        <Routes location={location} key={location.pathname}>
+        <Routes>
           <Route path="/"                  element={<Home />} />
           <Route path="/about"             element={<About />} />
           <Route path="/products"          element={<Products />} />

@@ -5,7 +5,7 @@ import { FiShoppingCart, FiUser, FiSearch, FiMenu, FiX, FiChevronDown, FiSetting
 import { HiStar } from 'react-icons/hi2';
 import { useCart } from '../../context/CartContext';
 import { useAuth } from '../../context/AuthContext';
-import { allProducts } from '../../data/products';
+import { useProducts } from '../../context/ProductsContext';
 
 const navLinks = [
   { label: 'Home', to: '/' },
@@ -158,6 +158,7 @@ export default function Navbar({ onOpenAuthModal }) {
   const searchBarRef = useRef(null);
   const { cartCount } = useCart();
   const { user, profile, isAdmin } = useAuth();
+  const { products } = useProducts();
   const location = useLocation();
   const navigate  = useNavigate();
 
@@ -190,21 +191,21 @@ export default function Navbar({ onOpenAuthModal }) {
     setSearchResults([]);
   }, [location]);
 
-  // live search results
+  // live search results — searches real Supabase products
   useEffect(() => {
     const q = searchQuery.trim().toLowerCase();
     if (q.length < 2) { setSearchResults([]); return; }
-    let list = allProducts.filter(
+    let list = products.filter(
       (p) =>
-        p.name.toLowerCase().includes(q) ||
+        p.name?.toLowerCase().includes(q) ||
         p.category?.toLowerCase().includes(q) ||
         p.description?.toLowerCase().includes(q)
     );
-    if (category !== 'All')          list = list.filter((p) => p.category === category);
+    if (category !== 'All')               list = list.filter((p) => p.category === category);
     if (priceRange.label !== 'Any Price') list = list.filter((p) => p.price >= priceRange.min && p.price <= priceRange.max);
-    if (rating > 0)                  list = list.filter((p) => (p.rating || 0) >= rating);
+    if (rating > 0)                       list = list.filter((p) => (p.rating || 0) >= rating);
     setSearchResults(list.slice(0, 5));
-  }, [searchQuery, category, priceRange, rating]);
+  }, [searchQuery, category, priceRange, rating, products]);
 
   // click outside closes search+filter
   useEffect(() => {
@@ -510,10 +511,10 @@ export default function Navbar({ onOpenAuthModal }) {
                               onClick={() => handleResultClick(product)}
                               className="w-full flex items-center gap-3 px-4 py-3 hover:bg-cream-50 transition-colors text-left group border-b border-cream-100 last:border-0"
                             >
-                              <img src={product.image} alt={product.name} className="w-11 h-11 rounded-xl object-cover flex-shrink-0" />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-semibold text-chocolate truncate group-hover:text-rose-bakery transition-colors">{product.name}</p>
-                                <p className="text-[11px] text-chocolate/50">{product.category} · ${product.price?.toFixed(2)}</p>
+                               <img src={product.image_url || product.image || ''} alt={product.name} className="w-11 h-11 rounded-xl object-cover flex-shrink-0" loading="lazy" />
+                               <div className="flex-1 min-w-0">
+                                 <p className="text-sm font-semibold text-chocolate truncate group-hover:text-rose-bakery transition-colors">{product.name}</p>
+                                 <p className="text-[11px] text-chocolate/50">{product.category} · ₹{product.price?.toFixed(0)}</p>
                               </div>
                               <div className="flex-shrink-0 flex items-center gap-1 bg-rose-pale px-2 py-0.5 rounded-full">
                                 <HiStar size={11} className="text-gold" />
