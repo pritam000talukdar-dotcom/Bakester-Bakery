@@ -30,7 +30,7 @@ const heroSlides = [
     subtitle: "Every cake, brownie and tart is lovingly baked at home from scratch \u2014 using grandma's recipes, the freshest local ingredients, and a generous handful of heart.",
     cta: 'Explore Our Bakes',
     ctaLink: '/products',
-    image: 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=800&h=600&fit=crop',
+    image: 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=700&h=500&fit=crop&auto=format&q=70',
     bg: 'from-cream-100 via-rose-pale/30 to-cream-200',
   },
   {
@@ -40,7 +40,7 @@ const heroSlides = [
     subtitle: "From delicate celebration cakes to fudgy brownies and buttery tarts \u2014 every creation at Bakester is handcrafted in small batches to ensure it's perfect just for you.",
     cta: 'View Specialities',
     ctaLink: '/speciality-cakes',
-    image: 'https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=800&h=600&fit=crop',
+    image: 'https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=700&h=500&fit=crop&auto=format&q=70',
     bg: 'from-rose-pale/40 via-cream-100 to-cream-200',
   },
   {
@@ -50,7 +50,7 @@ const heroSlides = [
     subtitle: "Birthdays, anniversaries, weddings \u2014 let us bake the centrepiece of your most precious memories. Custom designs, personal flavours, crafted with a mother's care.",
     cta: 'Order Custom Cake',
     ctaLink: '/speciality-cakes',
-    image: 'https://images.unsplash.com/photo-1535141192574-5d4897c12636?w=800&h=600&fit=crop',
+    image: 'https://images.unsplash.com/photo-1535141192574-5d4897c12636?w=700&h=500&fit=crop&auto=format&q=70',
     bg: 'from-cream-200 via-rose-pale/20 to-cream-100',
   },
 ];
@@ -75,9 +75,9 @@ export default function Hero() {
 
   const activeFilterCount = [category !== 'All', priceRange.label !== 'Any Price', rating > 0].filter(Boolean).length;
 
-  // auto-advance slides
+  // auto-advance slides — 7s is more network-friendly on mobile
   useEffect(() => {
-    const t = setInterval(() => { setDirection(1); setCurrent((c) => (c + 1) % heroSlides.length); }, 5500);
+    const t = setInterval(() => { setDirection(1); setCurrent((c) => (c + 1) % heroSlides.length); }, 7000);
     return () => clearInterval(t);
   }, []);
 
@@ -158,10 +158,10 @@ export default function Hero() {
           <AnimatePresence mode="wait">
             <motion.div
               key={`text-${current}`}
-              initial={{ opacity: 0, x: direction * -60 }}
+              initial={{ opacity: 0, x: direction * -40 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: direction * 60 }}
-              transition={{ duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] }}
+              exit={{ opacity: 0, x: direction * 40 }}
+              transition={{ duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] }}
               className="space-y-6"
             >
               <motion.p
@@ -463,10 +463,10 @@ export default function Hero() {
           <AnimatePresence mode="wait">
             <motion.div
               key={`img-${current}`}
-              initial={{ opacity: 0, scale: 0.9, x: direction * 60 }}
+              initial={{ opacity: 0, scale: 0.95, x: direction * 40 }}
               animate={{ opacity: 1, scale: 1, x: 0 }}
-              exit={{ opacity: 0, scale: 0.9, x: direction * -60 }}
-              transition={{ duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] }}
+              exit={{ opacity: 0, scale: 0.95, x: direction * -40 }}
+              transition={{ duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] }}
               className="relative hidden lg:block"
             >
               <div className="absolute inset-0 -rotate-3 rounded-3xl bg-rose-pale/50" />
@@ -474,14 +474,13 @@ export default function Hero() {
                 <img
                   src={slide.image}
                   alt="Bakester signature creation"
+                  fetchpriority={current === 0 ? 'high' : 'auto'}
+                  loading={current === 0 ? 'eager' : 'lazy'}
+                  decoding="async"
                   className="w-full h-[400px] lg:h-[500px] object-cover"
                 />
                 {/* Floating badge */}
-                <motion.div
-                  animate={{ y: [0, -8, 0] }}
-                  transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-                  className="absolute bottom-6 right-6 bg-white rounded-2xl shadow-card-hover p-4 flex items-center gap-3"
-                >
+                <div className="absolute bottom-6 right-6 bg-white rounded-2xl shadow-card-hover p-4 flex items-center gap-3">
                   <div className="w-10 h-10 bg-rose-pale rounded-xl flex items-center justify-center">
                     <span className="text-xl">🎂</span>
                   </div>
@@ -489,7 +488,7 @@ export default function Hero() {
                     <p className="text-xs font-semibold text-chocolate">Feed of the Gods</p>
                     <p className="text-[10px] text-chocolate/50">Artisan Baked Daily</p>
                   </div>
-                </motion.div>
+                </div>
               </div>
             </motion.div>
           </AnimatePresence>

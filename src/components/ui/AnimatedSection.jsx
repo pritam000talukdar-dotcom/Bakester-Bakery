@@ -1,13 +1,16 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 
+// On mobile we use simpler, faster animations to avoid jank
+const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+
 const variants = {
-  hidden: { opacity: 0, y: 40 },
+  hidden: { opacity: 0, y: isMobile ? 20 : 40 },
   visible: (delay = 0) => ({
     opacity: 1,
     y: 0,
     transition: {
-      duration: 0.6,
+      duration: isMobile ? 0.35 : 0.6,
       ease: [0.25, 0.46, 0.45, 0.94],
       delay,
     },
@@ -20,13 +23,14 @@ export default function AnimatedSection({
   delay = 0,
   direction = 'up',
   once = true,
-  amount = 0.15,
+  // Higher amount threshold means mobile triggers animation sooner
+  amount = isMobile ? 0.08 : 0.15,
 }) {
   const dirMap = {
-    up: { y: 40, x: 0 },
-    down: { y: -40, x: 0 },
-    left: { y: 0, x: -40 },
-    right: { y: 0, x: 40 },
+    up:    { y: isMobile ? 20 : 40, x: 0 },
+    down:  { y: isMobile ? -20 : -40, x: 0 },
+    left:  { y: 0, x: isMobile ? -20 : -40 },
+    right: { y: 0, x: isMobile ? 20 : 40 },
   };
 
   return (
@@ -36,9 +40,9 @@ export default function AnimatedSection({
       whileInView={{ opacity: 1, y: 0, x: 0 }}
       viewport={{ once, amount }}
       transition={{
-        duration: 0.65,
+        duration: isMobile ? 0.35 : 0.65,
         ease: [0.25, 0.46, 0.45, 0.94],
-        delay,
+        delay: isMobile ? Math.min(delay, 0.1) : delay, // cap delay on mobile
       }}
     >
       {children}

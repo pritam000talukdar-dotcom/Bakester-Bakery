@@ -1,6 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { Suspense, lazy, useEffect, useState, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
-import { AnimatePresence, motion } from 'framer-motion';
 import { CartProvider } from './context/CartContext';
 import { AuthProvider } from './context/AuthContext';
 import { ProductsProvider } from './context/ProductsContext';
@@ -8,40 +7,35 @@ import AuthModal from './components/auth/AuthModal';
 import ProtectedRoute, { AdminRoute } from './components/auth/ProtectedRoute';
 import Navbar from './components/layout/Navbar';
 import Footer from './components/layout/Footer';
-import Home from './pages/Home';
-import About from './pages/About';
-import Products from './pages/Products';
-import SpecialityCakes from './pages/SpecialityCakes';
-import Contact from './pages/Contact';
-import Profile from './pages/Profile';
-import Orders from './pages/Orders';
-import Cart from './pages/Cart';
-import AdminDashboard from './pages/admin/AdminDashboard';
+
+// ─── Lazy-load all pages so each route only loads its JS chunk when visited ───
+const Home             = lazy(() => import('./pages/Home'));
+const About            = lazy(() => import('./pages/About'));
+const Products         = lazy(() => import('./pages/Products'));
+const SpecialityCakes  = lazy(() => import('./pages/SpecialityCakes'));
+const Contact          = lazy(() => import('./pages/Contact'));
+const Profile          = lazy(() => import('./pages/Profile'));
+const Orders           = lazy(() => import('./pages/Orders'));
+const Cart             = lazy(() => import('./pages/Cart'));
+const AdminDashboard   = lazy(() => import('./pages/admin/AdminDashboard'));
 
 // Scroll to top on route change
 function ScrollToTop() {
   const { pathname } = useLocation();
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: 'instant' }); // instant is faster on mobile
   }, [pathname]);
   return null;
 }
 
-// Page transition wrapper
-function PageWrapper({ children }) {
-  const location = useLocation();
+// Lightweight page fallback — shows immediately without layout shift
+function PageFallback() {
   return (
-    <AnimatePresence mode="wait">
-      <motion.div
-        key={location.pathname}
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -16 }}
-        transition={{ duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] }}
-      >
-        {children}
-      </motion.div>
-    </AnimatePresence>
+    <div className="min-h-screen pt-20 flex items-center justify-center">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-10 h-10 border-4 border-rose-bakery border-t-transparent rounded-full animate-spin" />
+      </div>
+    </div>
   );
 }
 
@@ -51,14 +45,15 @@ function AppRoutes({ onOpenAuthModal }) {
     <>
       <ScrollToTop />
       <Navbar onOpenAuthModal={onOpenAuthModal} />
-      <PageWrapper>
+      {/* Suspense wraps lazy routes — each page chunk loads on demand */}
+      <Suspense fallback={<PageFallback />}>
         <Routes location={location} key={location.pathname}>
-          <Route path="/" element={<Home />} />
-          <Route path="/about" element={<About />} />
-          <Route path="/products" element={<Products />} />
-          <Route path="/speciality-cakes" element={<SpecialityCakes />} />
-          <Route path="/contact" element={<Contact />} />
-          <Route path="/cart" element={<Cart />} />
+          <Route path="/"                  element={<Home />} />
+          <Route path="/about"             element={<About />} />
+          <Route path="/products"          element={<Products />} />
+          <Route path="/speciality-cakes"  element={<SpecialityCakes />} />
+          <Route path="/contact"           element={<Contact />} />
+          <Route path="/cart"              element={<Cart />} />
           <Route
             path="/profile"
             element={
@@ -96,7 +91,7 @@ function AppRoutes({ onOpenAuthModal }) {
             }
           />
         </Routes>
-      </PageWrapper>
+      </Suspense>
       <Footer />
     </>
   );
@@ -105,7 +100,7 @@ function AppRoutes({ onOpenAuthModal }) {
 export default function App() {
   const [authModalOpen, setAuthModalOpen] = useState(false);
 
-  const openAuthModal = useCallback(() => setAuthModalOpen(true), []);
+  const openAuthModal  = useCallback(() => setAuthModalOpen(true), []);
   const closeAuthModal = useCallback(() => setAuthModalOpen(false), []);
 
   return (

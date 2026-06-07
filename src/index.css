@@ -136,3 +136,32 @@
   transform: translateY(0);
   transition: opacity 400ms, transform 400ms;
 }
+
+/* ── Mobile performance: promote animated cards to their own GPU layer ── */
+.product-card {
+  will-change: transform;
+}
+
+/* ── Allow fast touch scrolling in horizontal carousels ── */
+[data-scroll-container] {
+  touch-action: pan-x;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Skip offscreen rendering for below-fold page sections ── */
+@media (max-width: 768px) {
+  section + section {
+    content-visibility: auto;
+    contain-intrinsic-size: 0 500px;
+  }
+}
+
+/* ── Reduce motion for users who prefer it (accessibility + perf) ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+

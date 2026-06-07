@@ -10,9 +10,8 @@ export default function BestSellers() {
   const scrollRef = useRef(null);
   const { products, loading } = useProducts();
 
-  // Show top-rated in-stock products (up to 6)
+  // Show all products sorted by rating (up to 6) — include out-of-stock
   const featured = [...products]
-    .filter((p) => p.in_stock !== false)
     .sort((a, b) => (b.rating || 0) - (a.rating || 0))
     .slice(0, 6);
 
@@ -85,10 +84,10 @@ export default function BestSellers() {
             {featured.map((product, i) => (
               <motion.div
                 key={product.id}
-                initial={{ opacity: 0, y: 30 }}
+                initial={{ opacity: 0, y: 16 }}
                 whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, amount: 0.2 }}
-                transition={{ delay: i * 0.1 }}
+                viewport={{ once: true, amount: 0.1 }}
+                transition={{ delay: Math.min(i * 0.05, 0.15), duration: 0.28 }}
                 className="min-w-[280px] sm:min-w-[300px] snap-start"
               >
                 <ProductCard product={product} />
