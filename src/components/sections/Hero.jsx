@@ -8,11 +8,11 @@ import { useProducts } from '../../context/ProductsContext';
 // ── Filter constants (shared with navbar) ────────────────────
 const FILTER_CATEGORIES = ['All', 'Cakes', 'Brownies', 'Tarts', 'Celebration', 'Speciality'];
 const PRICE_RANGES = [
-  { label: 'Any Price',      min: 0,    max: Infinity },
-  { label: 'Under ₹1,000',  min: 0,    max: 1000 },
-  { label: '₹1,000 – ₹2,000', min: 1000, max: 2000 },
-  { label: '₹2,000 – ₹4,000', min: 2000, max: 4000 },
-  { label: '₹4,000+',        min: 4000, max: Infinity },
+  { label: 'Any Price', min: 0, max: Infinity },
+  { label: 'Under ₹35',  min: 0, max: 35 },
+  { label: '₹35 – ₹50', min: 35, max: 50 },
+  { label: '₹50 – ₹80', min: 50, max: 80 },
+  { label: '₹80+',       min: 80, max: Infinity },
 ];
 const RATINGS = [
   { label: 'Any Rating', value: 0 },

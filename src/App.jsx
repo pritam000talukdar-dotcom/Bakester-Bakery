@@ -61,11 +61,16 @@ class ErrorBoundary extends Component {
   }
 }
 
-// ─── Scroll to top on route change ───────────────────────────────────────────
+// ─── Scroll to top on route change — safe on all mobile browsers ─────────────
 function ScrollToTop() {
   const { pathname } = useLocation();
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: 'instant' });
+    try {
+      // 'instant' is not supported on older iOS Safari — fall back gracefully
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    } catch {
+      window.scrollTo(0, 0);
+    }
   }, [pathname]);
   return null;
 }

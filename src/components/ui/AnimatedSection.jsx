@@ -1,21 +1,15 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
 
-// On mobile we use simpler, faster animations to avoid jank
-const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-
-const variants = {
-  hidden: { opacity: 0, y: isMobile ? 20 : 40 },
-  visible: (delay = 0) => ({
-    opacity: 1,
-    y: 0,
-    transition: {
-      duration: isMobile ? 0.35 : 0.6,
-      ease: [0.25, 0.46, 0.45, 0.94],
-      delay,
-    },
-  }),
-};
+// ─── Safe mobile detection inside the component ──────────────────────────────
+// Do NOT check window at module level — it can evaluate before the DOM is ready
+// and produce wrong results on production mobile builds.
+function useIsMobile() {
+  return useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return window.innerWidth < 768;
+  }, []);
+}
 
 export default function AnimatedSection({
   children,
@@ -23,14 +17,19 @@ export default function AnimatedSection({
   delay = 0,
   direction = 'up',
   once = true,
-  // Higher amount threshold means mobile triggers animation sooner
-  amount = isMobile ? 0.08 : 0.15,
 }) {
+  const isMobile = useIsMobile();
+
+  const distance = isMobile ? 16 : 36;
+  const duration = isMobile ? 0.3  : 0.6;
+  const cappedDelay = isMobile ? Math.min(delay, 0.08) : delay;
+  const amount = isMobile ? 0.05 : 0.12;
+
   const dirMap = {
-    up:    { y: isMobile ? 20 : 40, x: 0 },
-    down:  { y: isMobile ? -20 : -40, x: 0 },
-    left:  { y: 0, x: isMobile ? -20 : -40 },
-    right: { y: 0, x: isMobile ? 20 : 40 },
+    up:    { y: distance,  x: 0 },
+    down:  { y: -distance, x: 0 },
+    left:  { y: 0, x: -distance },
+    right: { y: 0, x: distance },
   };
 
   return (
@@ -40,9 +39,9 @@ export default function AnimatedSection({
       whileInView={{ opacity: 1, y: 0, x: 0 }}
       viewport={{ once, amount }}
       transition={{
-        duration: isMobile ? 0.35 : 0.65,
+        duration,
         ease: [0.25, 0.46, 0.45, 0.94],
-        delay: isMobile ? Math.min(delay, 0.1) : delay, // cap delay on mobile
+        delay: cappedDelay,
       }}
     >
       {children}

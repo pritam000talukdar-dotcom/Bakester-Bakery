@@ -10,18 +10,28 @@
   }
 
   html {
-    scroll-behavior: smooth;
+    /* Don't use scroll-behavior: smooth — it blocks React Router navigation on mobile */
+    -webkit-text-size-adjust: 100%; /* Prevent iOS font size inflation */
+    text-size-adjust: 100%;
   }
 
   body {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
     background-color: #FFFAF6;
     color: #2D1B0E;
     overflow-x: hidden;
+    /* Ensure full height rendering on mobile */
+    min-height: 100vh;
+    min-height: -webkit-fill-available;
   }
 
   h1, h2, h3, h4, h5 {
     font-family: 'Playfair Display', Georgia, serif;
+  }
+
+  /* Improve tap target sizes on mobile */
+  button, a {
+    -webkit-tap-highlight-color: transparent;
   }
 
   ::-webkit-scrollbar {
@@ -68,8 +78,9 @@
     @apply text-chocolate/60 text-base md:text-lg mt-3 max-w-xl mx-auto;
   }
 
+  /* Product card — NO will-change here (causes GPU crash on low-end Android) */
   .product-card {
-    @apply bg-white rounded-2xl overflow-hidden shadow-card hover:shadow-card-hover transition-all duration-300 hover:-translate-y-1;
+    @apply bg-white rounded-2xl overflow-hidden shadow-card transition-all duration-300;
   }
 
   .nav-link {
@@ -111,12 +122,18 @@
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
+
+  /* Safe backdrop blur with webkit prefix */
+  .backdrop-blur-safe {
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+  }
 }
 
-/* Custom animations */
+/* ── Custom animations ── */
 @keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
 }
 
 .shimmer {
@@ -125,43 +142,33 @@
   animation: shimmer 1.5s infinite;
 }
 
-/* Smooth page transitions */
-.page-enter {
-  opacity: 0;
-  transform: translateY(20px);
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
 
-.page-enter-active {
-  opacity: 1;
-  transform: translateY(0);
-  transition: opacity 400ms, transform 400ms;
-}
-
-/* ── Mobile performance: promote animated cards to their own GPU layer ── */
-.product-card {
-  will-change: transform;
-}
-
-/* ── Allow fast touch scrolling in horizontal carousels ── */
-[data-scroll-container] {
-  touch-action: pan-x;
+/* ── Touch-friendly horizontal scroll containers ── */
+.scroll-touch {
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
 }
 
-/* ── Skip offscreen rendering for below-fold page sections ── */
-@media (max-width: 768px) {
-  section + section {
-    content-visibility: auto;
-    contain-intrinsic-size: 0 500px;
-  }
-}
+/* ── IMPORTANT: Do NOT use content-visibility on mobile ──
+   content-visibility: auto breaks iOS Safari < 15.4 causing blank sections.
+   Instead we use lazy IntersectionObserver-based rendering via framer-motion. */
 
-/* ── Reduce motion for users who prefer it (accessibility + perf) ── */
+/* ── Reduce motion for users who prefer it (accessibility) ── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    animation-duration:       0.01ms !important;
+    animation-iteration-count: 1    !important;
+    transition-duration:      0.01ms !important;
+    scroll-behavior:          auto  !important;
   }
 }
 
+/* ── iOS safe area padding for bottom-fixed elements ── */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
