@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect, useState, useCallback } from 'react';
+import React, { Suspense, lazy, useEffect, useState, useCallback, Component } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { CartProvider } from './context/CartContext';
 import { AuthProvider } from './context/AuthContext';
@@ -19,33 +19,75 @@ const Orders           = lazy(() => import('./pages/Orders'));
 const Cart             = lazy(() => import('./pages/Cart'));
 const AdminDashboard   = lazy(() => import('./pages/admin/AdminDashboard'));
 
-// Scroll to top on route change
+// ─── Error Boundary — catches any render crash and shows a friendly screen ───
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error('[Bakester ErrorBoundary]', error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center bg-cream-50 px-6 text-center">
+          <div className="text-7xl mb-6">🎂</div>
+          <h1 className="font-serif text-3xl font-bold text-chocolate mb-3">
+            Something went wrong
+          </h1>
+          <p className="text-chocolate/60 mb-2 max-w-md">
+            We ran into an unexpected issue. Please try refreshing the page.
+          </p>
+          <p className="text-xs text-chocolate/30 mb-8 font-mono max-w-lg break-all">
+            {this.state.error?.message}
+          </p>
+          <button
+            onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload(); }}
+            className="btn-primary"
+          >
+            Refresh Page
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ─── Scroll to top on route change ───────────────────────────────────────────
 function ScrollToTop() {
   const { pathname } = useLocation();
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: 'instant' }); // instant is faster on mobile
+    window.scrollTo({ top: 0, behavior: 'instant' });
   }, [pathname]);
   return null;
 }
 
-// Lightweight page fallback — shows immediately without layout shift
+// ─── Loading fallback — shows spinner while lazy chunk downloads ──────────────
 function PageFallback() {
   return (
-    <div className="min-h-screen pt-20 flex items-center justify-center">
-      <div className="flex flex-col items-center gap-3">
-        <div className="w-10 h-10 border-4 border-rose-bakery border-t-transparent rounded-full animate-spin" />
+    <div className="min-h-screen pt-20 flex items-center justify-center bg-cream-50">
+      <div className="flex flex-col items-center gap-4">
+        <div className="w-12 h-12 border-4 border-rose-pale border-t-rose-bakery rounded-full animate-spin" />
+        <p className="text-chocolate/50 text-sm font-medium">Loading…</p>
       </div>
     </div>
   );
 }
 
+// ─── App routes — separate component so it can use router hooks ───────────────
 function AppRoutes({ onOpenAuthModal }) {
-  const location = useLocation();
   return (
     <>
       <ScrollToTop />
       <Navbar onOpenAuthModal={onOpenAuthModal} />
-      {/* Suspense wraps lazy routes — each page chunk loads on demand */}
       <Suspense fallback={<PageFallback />}>
         <Routes>
           <Route path="/"                  element={<Home />} />
@@ -78,7 +120,7 @@ function AppRoutes({ onOpenAuthModal }) {
               </AdminRoute>
             }
           />
-          {/* 404 fallback */}
+          {/* 404 */}
           <Route
             path="*"
             element={
@@ -97,22 +139,24 @@ function AppRoutes({ onOpenAuthModal }) {
   );
 }
 
+// ─── Root App ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [authModalOpen, setAuthModalOpen] = useState(false);
-
   const openAuthModal  = useCallback(() => setAuthModalOpen(true), []);
   const closeAuthModal = useCallback(() => setAuthModalOpen(false), []);
 
   return (
-    <BrowserRouter>
-      <AuthProvider onOpenModal={openAuthModal}>
-        <ProductsProvider>
-          <CartProvider>
-            <AppRoutes onOpenAuthModal={openAuthModal} />
-            <AuthModal isOpen={authModalOpen} onClose={closeAuthModal} />
-          </CartProvider>
-        </ProductsProvider>
-      </AuthProvider>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <AuthProvider onOpenModal={openAuthModal}>
+          <ProductsProvider>
+            <CartProvider>
+              <AppRoutes onOpenAuthModal={openAuthModal} />
+              <AuthModal isOpen={authModalOpen} onClose={closeAuthModal} />
+            </CartProvider>
+          </ProductsProvider>
+        </AuthProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
   );
 }

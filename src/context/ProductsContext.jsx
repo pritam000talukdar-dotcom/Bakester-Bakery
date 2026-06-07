@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 const ProductsContext = createContext(null);
 
@@ -8,31 +8,30 @@ let cachedProducts = null;
 let cacheTimestamp = 0;
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-// Actual columns in the DB:
-// id, name, description, price, category, image_url, rating, badge, in_stock, created_at, updated_at, quantity
-
 export const ProductsProvider = ({ children }) => {
   const [products, setProducts] = useState(cachedProducts || []);
-  const [loading, setLoading]   = useState(cachedProducts === null);
-  const [error, setError]       = useState(null);
+  const [loading, setLoading]   = useState(!cachedProducts && isSupabaseConfigured);
+  const [error, setError]       = useState(
+    isSupabaseConfigured ? null : 'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.'
+  );
   const productsRef = useRef(cachedProducts || []);
 
-  // Normalise a DB row to the shape the UI expects
+  // Normalise a DB row into the shape the UI expects
   const normalise = useCallback((p) => ({
     ...p,
-    // Both image_url (DB) and image (legacy) point to the same URL
     image: p.image_url || '',
-    // Ensure these always exist to prevent UI crashes
     name: p.name || 'Unnamed Product',
     description: p.description || '',
     price: p.price ?? 0,
     rating: p.rating ?? null,
     badge: p.badge?.trim() || null,
-    in_stock: p.in_stock !== false, // treat undefined/null as in-stock
+    in_stock: p.in_stock !== false,
     quantity: p.quantity ?? 0,
   }), []);
 
   const fetchProducts = useCallback(async (force = false) => {
+    if (!isSupabaseConfigured) return;
+
     const now = Date.now();
     if (!force && cachedProducts && now - cacheTimestamp < CACHE_TTL_MS) {
       setProducts(cachedProducts);
@@ -45,7 +44,6 @@ export const ProductsProvider = ({ children }) => {
     try {
       const { data, error: err } = await supabase
         .from('products')
-        // Use * to avoid missing any column that gets added later
         .select('*')
         .order('created_at', { ascending: false });
 
@@ -65,6 +63,8 @@ export const ProductsProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
+    if (!isSupabaseConfigured) return;
+
     const now = Date.now();
     if (cachedProducts && now - cacheTimestamp < CACHE_TTL_MS) {
       setProducts(cachedProducts);
@@ -117,7 +117,6 @@ export const ProductsProvider = ({ children }) => {
     [products, normalise]
   );
 
-  // Returns ALL products (including out-of-stock) — callers can filter if needed
   const getInStock = useCallback(
     () => products.filter((p) => p.in_stock !== false).map(normalise),
     [products, normalise]
