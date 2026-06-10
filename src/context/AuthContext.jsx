@@ -47,8 +47,10 @@ export const AuthProvider = ({ children, onOpenModal }) => {
     let mounted = true;
 
     // 1. Bootstrap immediately from the cached JWT (synchronous localStorage read)
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session }, error }) => {
       if (!mounted) return;
+      if (error) console.error('Session error:', error);
+      
       setSession(session);
       setUser(session?.user ?? null);
 
@@ -57,6 +59,9 @@ export const AuthProvider = ({ children, onOpenModal }) => {
         initialFetchDone.current = true;
       }
 
+      if (mounted) setLoading(false);
+    }).catch(err => {
+      console.error('getSession exception:', err);
       if (mounted) setLoading(false);
     });
 
