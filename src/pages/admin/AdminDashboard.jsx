@@ -492,8 +492,27 @@ export default function AdminDashboard() {
     }
   }, [addToast]);
 
-  useEffect(() => { loadProducts(); loadOrders(); }, [loadProducts, loadOrders]);
-  useEffect(() => { if (activeTab === 'images') loadImages(); }, [activeTab, loadImages]);
+  useEffect(() => {
+    // 1. Initial check
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        loadProducts();
+        loadOrders();
+        if (activeTab === 'images') loadImages();
+      }
+    });
+
+    // 2. Auth listener to ensure token is attached
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session) {
+        loadProducts();
+        loadOrders();
+        if (activeTab === 'images') loadImages();
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [loadProducts, loadOrders, activeTab, loadImages]);
 
   // ── CRUD Handlers ────────────────────────────────────────
   const handleInlineUpdate = async (productId, field, value) => {

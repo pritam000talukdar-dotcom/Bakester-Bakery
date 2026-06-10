@@ -151,8 +151,9 @@ export default function Orders() {
   const filters = ['All', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
 
   useEffect(() => {
+    let cancelled = false;
+
     const fetchOrders = async () => {
-      if (!user) return;
       setLoading(true);
       try {
         const { data, error } = await supabase
@@ -161,15 +162,31 @@ export default function Orders() {
           .eq('user_id', user.id)
           .order('created_at', { ascending: false });
         if (error) throw error;
-        setOrders(data || []);
+        if (!cancelled) setOrders(data || []);
       } catch (err) {
         console.error('Error fetching orders:', err.message);
-        setOrders([]);
+        if (!cancelled) setOrders([]);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
-    fetchOrders();
+
+    if (!user) return;
+
+    // 1. Initial check
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session && !cancelled) fetchOrders();
+    });
+
+    // 2. Auth listener to ensure token is attached
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session && !cancelled) fetchOrders();
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, [user]);
 
   const filtered = filter === 'All' ? orders : orders.filter((o) => o.status === filter);

@@ -64,6 +64,7 @@ export default function Profile() {
   useEffect(() => {
     if (!user?.id) return;
     let cancelled = false;
+
     const run = async () => {
       setOrdersLoading(true);
       try {
@@ -82,8 +83,21 @@ export default function Profile() {
         if (!cancelled) setOrdersLoading(false);
       }
     };
-    run();
-    return () => { cancelled = true; };
+
+    // 1. Initial check
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session && !cancelled) run();
+    });
+
+    // 2. Auth listener to ensure token is attached
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session && !cancelled) run();
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, [user?.id]);
 
   // ── Handlers ─────────────────────────────────────────────
