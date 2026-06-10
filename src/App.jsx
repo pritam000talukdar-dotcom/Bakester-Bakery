@@ -1,5 +1,6 @@
 import React, { Suspense, lazy, useEffect, useState, useCallback, Component } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { supabase } from './lib/supabase'; // 👈 MAKE SURE THIS PATH MATCHES YOUR SETUP
 import { CartProvider } from './context/CartContext';
 import { AuthProvider } from './context/AuthContext';
 import { ProductsProvider } from './context/ProductsContext';
@@ -8,18 +9,18 @@ import ProtectedRoute, { AdminRoute } from './components/auth/ProtectedRoute';
 import Navbar from './components/layout/Navbar';
 import Footer from './components/layout/Footer';
 
-// ─── Lazy-load all pages so each route only loads its JS chunk when visited ───
-const Home             = lazy(() => import('./pages/Home'));
-const About            = lazy(() => import('./pages/About'));
-const Products         = lazy(() => import('./pages/Products'));
-const SpecialityCakes  = lazy(() => import('./pages/SpecialityCakes'));
-const Contact          = lazy(() => import('./pages/Contact'));
-const Profile          = lazy(() => import('./pages/Profile'));
-const Orders           = lazy(() => import('./pages/Orders'));
-const Cart             = lazy(() => import('./pages/Cart'));
-const AdminDashboard   = lazy(() => import('./pages/admin/AdminDashboard'));
+// ─── Lazy-load all pages ───
+const Home = lazy(() => import('./pages/Home'));
+const About = lazy(() => import('./pages/About'));
+const Products = lazy(() => import('./pages/Products'));
+const SpecialityCakes = lazy(() => import('./pages/SpecialityCakes'));
+const Contact = lazy(() => import('./pages/Contact'));
+const Profile = lazy(() => import('./pages/Profile'));
+const Orders = lazy(() => import('./pages/Orders'));
+const Cart = lazy(() => import('./pages/Cart'));
+const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
 
-// ─── Error Boundary — catches any render crash and shows a friendly screen ───
+// ─── Error Boundary ───
 class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -39,15 +40,9 @@ class ErrorBoundary extends Component {
       return (
         <div className="min-h-screen flex flex-col items-center justify-center bg-cream-50 px-6 text-center">
           <div className="text-7xl mb-6">🎂</div>
-          <h1 className="font-serif text-3xl font-bold text-chocolate mb-3">
-            Something went wrong
-          </h1>
-          <p className="text-chocolate/60 mb-2 max-w-md">
-            We ran into an unexpected issue. Please try refreshing the page.
-          </p>
-          <p className="text-xs text-chocolate/30 mb-8 font-mono max-w-lg break-all">
-            {this.state.error?.message}
-          </p>
+          <h1 className="font-serif text-3xl font-bold text-chocolate mb-3">Something went wrong</h1>
+          <p className="text-chocolate/60 mb-2 max-w-md">We ran into an unexpected issue. Please try refreshing the page.</p>
+          <p className="text-xs text-chocolate/30 mb-8 font-mono max-w-lg break-all">{this.state.error?.message}</p>
           <button
             onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload(); }}
             className="btn-primary"
@@ -61,12 +56,11 @@ class ErrorBoundary extends Component {
   }
 }
 
-// ─── Scroll to top on route change — safe on all mobile browsers ─────────────
+// ─── Scroll to top ───
 function ScrollToTop() {
   const { pathname } = useLocation();
   useEffect(() => {
     try {
-      // 'instant' is not supported on older iOS Safari — fall back gracefully
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     } catch {
       window.scrollTo(0, 0);
@@ -75,7 +69,7 @@ function ScrollToTop() {
   return null;
 }
 
-// ─── Loading fallback — shows spinner while lazy chunk downloads ──────────────
+// ─── Loading fallback ───
 function PageFallback() {
   return (
     <div className="min-h-screen pt-20 flex items-center justify-center bg-cream-50">
@@ -87,7 +81,7 @@ function PageFallback() {
   );
 }
 
-// ─── App routes — separate component so it can use router hooks ───────────────
+// ─── App routes ───
 function AppRoutes({ onOpenAuthModal }) {
   return (
     <>
@@ -95,37 +89,15 @@ function AppRoutes({ onOpenAuthModal }) {
       <Navbar onOpenAuthModal={onOpenAuthModal} />
       <Suspense fallback={<PageFallback />}>
         <Routes>
-          <Route path="/"                  element={<Home />} />
-          <Route path="/about"             element={<About />} />
-          <Route path="/products"          element={<Products />} />
-          <Route path="/speciality-cakes"  element={<SpecialityCakes />} />
-          <Route path="/contact"           element={<Contact />} />
-          <Route path="/cart"              element={<Cart />} />
-          <Route
-            path="/profile"
-            element={
-              <ProtectedRoute>
-                <Profile />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/orders"
-            element={
-              <ProtectedRoute>
-                <Orders />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin"
-            element={
-              <AdminRoute>
-                <AdminDashboard />
-              </AdminRoute>
-            }
-          />
-          {/* 404 */}
+          <Route path="/" element={<Home />} />
+          <Route path="/about" element={<About />} />
+          <Route path="/products" element={<Products />} />
+          <Route path="/speciality-cakes" element={<SpecialityCakes />} />
+          <Route path="/contact" element={<Contact />} />
+          <Route path="/cart" element={<Cart />} />
+          <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+          <Route path="/orders" element={<ProtectedRoute><Orders /></ProtectedRoute>} />
+          <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
           <Route
             path="*"
             element={
@@ -147,9 +119,32 @@ function AppRoutes({ onOpenAuthModal }) {
 // ─── Root App ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [authModalOpen, setAuthModalOpen] = useState(false);
-  const openAuthModal  = useCallback(() => setAuthModalOpen(true), []);
+
+  // 1. ADD THE INITIALIZATION LOCK STATE
+  const [isInitializing, setIsInitializing] = useState(true);
+
+  const openAuthModal = useCallback(() => setAuthModalOpen(true), []);
   const closeAuthModal = useCallback(() => setAuthModalOpen(false), []);
 
+  // 2. CHECK SUPABASE BEFORE RENDERING ANYTHING
+  useEffect(() => {
+    supabase.auth.getSession().then(() => {
+      // Once Supabase has finished searching local storage for a token, unlock the app
+      setIsInitializing(false);
+    });
+  }, []);
+
+  // 3. SHOW THE "WARMING UP" SCREEN WHILE LOCKED
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-cream-50">
+        <div className="w-12 h-12 border-4 border-rose-pale border-t-rose-bakery rounded-full animate-spin mb-4" />
+        <h2 className="font-serif text-xl text-chocolate font-medium">Warming up the ovens...</h2>
+      </div>
+    );
+  }
+
+  // 4. RENDER APP NORMALLY (Providers now safely wait for the token!)
   return (
     <ErrorBoundary>
       <BrowserRouter>
