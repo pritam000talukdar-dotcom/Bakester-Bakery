@@ -171,21 +171,14 @@ export default function Orders() {
       }
     };
 
-    if (!user) return;
-
-    // 1. Initial check
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session && !cancelled) fetchOrders();
-    });
-
-    // 2. Auth listener to ensure token is attached
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session && !cancelled) fetchOrders();
-    });
+    if (user) {
+      fetchOrders();
+    } else {
+      setLoading(false);
+    }
 
     return () => {
       cancelled = true;
-      subscription.unsubscribe();
     };
   }, [user]);
 

@@ -62,7 +62,6 @@ export default function Profile() {
 
   // ── Fetch orders ─────────────────────────────────────────
   useEffect(() => {
-    if (!user?.id) return;
     let cancelled = false;
 
     const run = async () => {
@@ -84,19 +83,14 @@ export default function Profile() {
       }
     };
 
-    // 1. Initial check
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session && !cancelled) run();
-    });
-
-    // 2. Auth listener to ensure token is attached
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session && !cancelled) run();
-    });
+    if (user?.id) {
+      run();
+    } else {
+      setOrdersLoading(false);
+    }
 
     return () => {
       cancelled = true;
-      subscription.unsubscribe();
     };
   }, [user?.id]);
 
