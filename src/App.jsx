@@ -83,10 +83,14 @@ function PageFallback() {
 
 // ─── App routes ───
 function AppRoutes({ onOpenAuthModal }) {
+  const location = useLocation();
+  const isAdmin = location.pathname.startsWith('/admin');
+
   return (
     <>
       <ScrollToTop />
-      <Navbar onOpenAuthModal={onOpenAuthModal} />
+      {/* Hide user Navbar on admin pages */}
+      {!isAdmin && <Navbar onOpenAuthModal={onOpenAuthModal} />}
       <Suspense fallback={<PageFallback />}>
         <Routes>
           <Route path="/" element={<Home />} />
@@ -111,7 +115,8 @@ function AppRoutes({ onOpenAuthModal }) {
           />
         </Routes>
       </Suspense>
-      <Footer />
+      {/* Hide user Footer on admin pages */}
+      {!isAdmin && <Footer />}
     </>
   );
 }
