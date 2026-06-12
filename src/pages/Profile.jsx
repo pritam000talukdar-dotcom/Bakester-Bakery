@@ -1,38 +1,80 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import AnimatedSection from '../components/ui/AnimatedSection';
+import ProductCard from '../components/ui/ProductCard';
 import {
   FiEdit2, FiPackage, FiHeart, FiSettings, FiLogOut,
-  FiCamera, FiCheckCircle, FiAlertCircle, FiLayers, FiArrowRight,
+  FiCamera, FiCheckCircle, FiAlertCircle, FiLayers, FiArrowRight, FiTrash2,
 } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
+import { useProducts } from '../context/ProductsContext';
 import { supabase } from '../lib/supabase';
 
 const navItems = [
-  { label: 'Profile',  icon: FiEdit2,    id: 'profile'  },
-  { label: 'Orders',   icon: FiPackage,  id: 'orders'   },
-  { label: 'Wishlist', icon: FiHeart,    id: 'wishlist'  },
-  { label: 'Settings', icon: FiSettings, id: 'settings'  },
+  { label: 'Profile', icon: FiEdit2, id: 'profile' },
+  { label: 'Orders', icon: FiPackage, id: 'orders' },
+  { label: 'Wishlist', icon: FiHeart, id: 'wishlist' },
+  { label: 'Settings', icon: FiSettings, id: 'settings' },
 ];
 
 const statusColors = {
-  Delivered:  'bg-green-50 text-green-700 border-green-200',
+  Delivered: 'bg-green-50 text-green-700 border-green-200',
   Processing: 'bg-amber-50 text-amber-700 border-amber-200',
-  Shipped:    'bg-blue-50 text-blue-700 border-blue-200',
-  Cancelled:  'bg-red-50 text-red-700 border-red-200',
+  Shipped: 'bg-blue-50 text-blue-700 border-blue-200',
+  Cancelled: 'bg-red-50 text-red-700 border-red-200',
 };
 
 export default function Profile() {
   const { user, profile, updateProfile, signOut } = useAuth();
-  const [activeTab, setActiveTab]     = useState('profile');
-  const [editing, setEditing]         = useState(false);
-  const [saving, setSaving]           = useState(false);
+  const { products } = useProducts();
+  const [activeTab, setActiveTab] = useState('profile');
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [saveError, setSaveError]     = useState('');
+  const [saveError, setSaveError] = useState('');
   const [recentOrders, setRecentOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
-  const [isAdminLocal, setIsAdminLocal]   = useState(false);
+  const [isAdminLocal, setIsAdminLocal] = useState(false);
+
+  // Wishlist: stored as array of product IDs in localStorage, keyed by user
+  const getWishlistKey = (uid) => `bakester_wishlist_${uid || 'guest'}`;
+  const [wishlistIds, setWishlistIds] = useState(() => {
+    try {
+      const key = getWishlistKey(user?.id);
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  });
+
+  // Re-load from localStorage when user changes (login/logout)
+  useEffect(() => {
+    try {
+      const key = getWishlistKey(user?.id);
+      const raw = localStorage.getItem(key);
+      setWishlistIds(raw ? JSON.parse(raw) : []);
+    } catch { setWishlistIds([]); }
+  }, [user?.id]);
+
+  // Save wishlist to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem(getWishlistKey(user?.id), JSON.stringify(wishlistIds));
+    } catch { }
+  }, [wishlistIds, user?.id]);
+
+  // Derive wishlisted products from full products list
+  const wishlistedProducts = products.filter((p) => wishlistIds.includes(p.id));
+
+  const handleWishlistToggle = useCallback((product, isLiked) => {
+    setWishlistIds((prev) =>
+      isLiked ? [...new Set([...prev, product.id])] : prev.filter((id) => id !== product.id)
+    );
+  }, []);
+
+  const removeFromWishlist = (id) => {
+    setWishlistIds((prev) => prev.filter((pid) => pid !== id));
+  };
 
   const [form, setForm] = useState({ full_name: '', phone: '', address: '' });
 
@@ -41,8 +83,8 @@ export default function Profile() {
     if (profile) {
       setForm({
         full_name: profile.full_name || '',
-        phone:     profile.phone     || '',
-        address:   profile.address   || '',
+        phone: profile.phone || '',
+        address: profile.address || '',
       });
     }
   }, [profile]);
@@ -102,8 +144,8 @@ export default function Profile() {
     try {
       await updateProfile({
         full_name: form.full_name.trim(),
-        phone:     form.phone.trim(),
-        address:   form.address.trim(),
+        phone: form.phone.trim(),
+        address: form.address.trim(),
       });
       setSaveSuccess(true);
       setEditing(false);
@@ -177,10 +219,10 @@ export default function Profile() {
             {/* Form fields */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {[
-                { label: 'Full Name',         key: 'full_name', type: 'text'  },
-                { label: 'Email Address',     key: 'email',     type: 'email', readOnly: true },
-                { label: 'Phone Number',      key: 'phone',     type: 'tel'   },
-                { label: 'Delivery Address',  key: 'address',   type: 'text'  },
+                { label: 'Full Name', key: 'full_name', type: 'text' },
+                { label: 'Email Address', key: 'email', type: 'email', readOnly: true },
+                { label: 'Phone Number', key: 'phone', type: 'tel' },
+                { label: 'Delivery Address', key: 'address', type: 'text' },
               ].map(({ label, key, type, readOnly }) => (
                 <div key={key} className={key === 'address' ? 'sm:col-span-2' : ''}>
                   <label className="block text-sm font-medium text-chocolate/70 mb-1.5">{label}</label>
@@ -317,12 +359,56 @@ export default function Profile() {
       case 'wishlist':
         return (
           <div>
-            <h2 className="font-serif text-xl sm:text-2xl font-bold text-chocolate mb-5">My Wishlist</h2>
-            <div className="text-center py-14 bg-cream-50 rounded-2xl border border-cream-200">
-              <p className="text-5xl mb-4">💝</p>
-              <h3 className="font-serif text-xl font-bold text-chocolate mb-2">Coming Soon</h3>
-              <p className="text-chocolate/50 text-sm">Wishlist feature will be available soon.</p>
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="font-serif text-xl sm:text-2xl font-bold text-chocolate">My Wishlist</h2>
+              {wishlistedProducts.length > 0 && (
+                <span className="text-xs text-chocolate/50 font-medium">
+                  {wishlistedProducts.length} {wishlistedProducts.length === 1 ? 'item' : 'items'}
+                </span>
+              )}
             </div>
+            {wishlistedProducts.length === 0 ? (
+              <div className="text-center py-14 bg-cream-50 rounded-2xl border border-cream-200">
+                <motion.div
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className="text-6xl mb-4"
+                >💝</motion.div>
+                <h3 className="font-serif text-xl font-bold text-chocolate mb-2">Your wishlist is empty</h3>
+                <p className="text-chocolate/50 text-sm mb-6">Save your favourite treats by tapping the heart on any product!</p>
+                <Link to="/products" className="btn-primary inline-block">Browse Products</Link>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <AnimatePresence>
+                  {wishlistedProducts.map((product) => (
+                    <motion.div
+                      key={product.id}
+                      layout
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      transition={{ duration: 0.2 }}
+                      className="relative"
+                    >
+                      <ProductCard
+                        product={product}
+                        isWishlisted={true}
+                        onWishlistToggle={handleWishlistToggle}
+                      />
+                      {/* Quick remove button */}
+                      <button
+                        onClick={() => removeFromWishlist(product.id)}
+                        className="absolute top-2 left-2 w-7 h-7 flex items-center justify-center rounded-full bg-white/90 shadow text-red-400 hover:text-red-600 hover:bg-red-50 transition-all z-10"
+                        aria-label="Remove from wishlist"
+                      >
+                        <FiTrash2 size={13} />
+                      </button>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+            )}
           </div>
         );
 
@@ -401,7 +487,7 @@ export default function Profile() {
             {isAdminLocal && (
               <Link
                 to="/admin"
-                className="hidden sm:flex items-center gap-2 flex-shrink-0 px-4 py-2.5 bg-gray-900 text-white text-xs font-semibold rounded-xl hover:bg-gray-800 transition-all"
+                className="hidden sm:flex items-center gap-2 flex-shrink-0 px-4 py-2.5 bg-rose-bakery text-white text-xs font-semibold rounded-xl hover:bg-rose-dark transition-all"
               >
                 <FiLayers size={13} /> Admin Panel
                 <FiArrowRight size={12} />
@@ -419,11 +505,10 @@ export default function Profile() {
                   <button
                     key={item.id}
                     onClick={() => setActiveTab(item.id)}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap flex-shrink-0 transition-all ${
-                      activeTab === item.id
-                        ? 'bg-rose-bakery text-white shadow-sm'
-                        : 'bg-white text-chocolate/70 border border-cream-200 hover:border-rose-bakery/30'
-                    }`}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap flex-shrink-0 transition-all ${activeTab === item.id
+                      ? 'bg-rose-bakery text-white shadow-sm'
+                      : 'bg-white text-chocolate/70 border border-cream-200 hover:border-rose-bakery/30'
+                      }`}
                   >
                     <item.icon size={15} />
                     {item.label}
@@ -438,11 +523,10 @@ export default function Profile() {
                     key={item.id}
                     whileHover={{ x: 3 }} whileTap={{ scale: 0.98 }}
                     onClick={() => setActiveTab(item.id)}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-                      activeTab === item.id
-                        ? 'bg-rose-pale text-rose-bakery'
-                        : 'text-chocolate/70 hover:bg-cream-50 hover:text-rose-bakery'
-                    }`}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeTab === item.id
+                      ? 'bg-rose-pale text-rose-bakery'
+                      : 'text-chocolate/70 hover:bg-cream-50 hover:text-rose-bakery'
+                      }`}
                   >
                     <item.icon size={17} />
                     {item.label}
@@ -459,20 +543,20 @@ export default function Profile() {
                 >
                   <Link
                     to="/admin"
-                    className="block bg-gradient-to-br from-[#1a1a24] to-[#2d1030] rounded-2xl p-4 group hover:shadow-xl hover:shadow-rose-bakery/20 transition-all border border-rose-bakery/20"
+                    className="block bg-gradient-to-br from-rose-bakery to-rose-dark rounded-2xl p-4 group hover:shadow-xl hover:shadow-rose-dark/20 transition-all border border-rose-bakery/20"
                   >
                     <div className="flex items-center gap-3 mb-3">
-                      <div className="w-9 h-9 bg-rose-bakery/30 rounded-xl flex items-center justify-center">
-                        <FiLayers size={17} className="text-rose-bakery" />
+                      <div className="w-9 h-9 bg-rose-dark rounded-xl flex items-center justify-center">
+                        <FiLayers size={17} className="text-white" />
                       </div>
                       <div>
                         <p className="text-xs font-bold text-white">Admin Panel</p>
-                        <p className="text-[10px] text-rose-bakery/60">Inventory &amp; Orders</p>
+                        <p className="text-[10px] text-white">Inventory &amp; Orders</p>
                       </div>
                     </div>
                     <div className="flex items-center justify-between">
-                      <p className="text-[11px] text-white/50">Manage products &amp; stock</p>
-                      <FiArrowRight size={14} className="text-rose-bakery group-hover:translate-x-1 transition-transform" />
+                      <p className="text-[11px] text-white">Manage products &amp; stock</p>
+                      <FiArrowRight size={14} className="text-white group-hover:translate-x-1 transition-transform" />
                     </div>
                   </Link>
                 </motion.div>

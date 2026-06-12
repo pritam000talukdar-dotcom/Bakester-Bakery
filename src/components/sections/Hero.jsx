@@ -1,18 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FiArrowRight, FiChevronLeft, FiChevronRight, FiSearch, FiChevronDown } from 'react-icons/fi';
 import { HiStar } from 'react-icons/hi2';
 import { useProducts } from '../../context/ProductsContext';
 
-// ── Filter constants (shared with navbar) ────────────────────
-const FILTER_CATEGORIES = ['All', 'Cakes', 'Brownies', 'Tarts', 'Celebration', 'Speciality'];
+// ── Filter constants (derived dynamically from products) ───────────────
 const PRICE_RANGES = [
-  { label: 'Any Price', min: 0, max: Infinity },
-  { label: 'Under ₹35',  min: 0, max: 35 },
-  { label: '₹35 – ₹50', min: 35, max: 50 },
-  { label: '₹50 – ₹80', min: 50, max: 80 },
-  { label: '₹80+',       min: 80, max: Infinity },
+  { label: 'Any Price',    min: 0,   max: Infinity },
+  { label: 'Under ₹100',  min: 0,   max: 100 },
+  { label: '₹100 – ₹150', min: 100, max: 150 },
+  { label: '₹150+',        min: 150, max: Infinity },
 ];
 const RATINGS = [
   { label: 'Any Rating', value: 0 },
@@ -22,7 +20,8 @@ const RATINGS = [
 ];
 
 // ── Slides ───────────────────────────────────────────────────
-const heroSlides = [
+// Slide content (images injected dynamically from DB in component)
+const SLIDE_CONTENT = [
   {
     id: 1,
     eyebrow: 'Homemade with Love, Every Single Day',
@@ -30,8 +29,8 @@ const heroSlides = [
     subtitle: "Every cake, brownie and tart is lovingly baked at home from scratch \u2014 using grandma's recipes, the freshest local ingredients, and a generous handful of heart.",
     cta: 'Explore Our Bakes',
     ctaLink: '/products',
-    image: 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=700&h=500&fit=crop&auto=format&q=70',
     bg: 'from-cream-100 via-rose-pale/30 to-cream-200',
+    preferCategory: 'Cakes',
   },
   {
     id: 2,
@@ -40,8 +39,8 @@ const heroSlides = [
     subtitle: "From delicate celebration cakes to fudgy brownies and buttery tarts \u2014 every creation at Bakester is handcrafted in small batches to ensure it's perfect just for you.",
     cta: 'View Specialities',
     ctaLink: '/speciality-cakes',
-    image: 'https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=700&h=500&fit=crop&auto=format&q=70',
     bg: 'from-rose-pale/40 via-cream-100 to-cream-200',
+    preferCategory: 'Speciality',
   },
   {
     id: 3,
@@ -50,9 +49,16 @@ const heroSlides = [
     subtitle: "Birthdays, anniversaries, weddings \u2014 let us bake the centrepiece of your most precious memories. Custom designs, personal flavours, crafted with a mother's care.",
     cta: 'Order Custom Cake',
     ctaLink: '/speciality-cakes',
-    image: 'https://images.unsplash.com/photo-1535141192574-5d4897c12636?w=700&h=500&fit=crop&auto=format&q=70',
     bg: 'from-cream-200 via-rose-pale/20 to-cream-100',
+    preferCategory: 'Celebration',
   },
+];
+
+// Real fallback cake images (only used if DB has zero products)
+const FALLBACK_IMAGES = [
+  'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=800&h=600&fit=crop&auto=format&q=85',
+  'https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=800&h=600&fit=crop&auto=format&q=85',
+  'https://images.unsplash.com/photo-1535141192574-5d4897c12636?w=800&h=600&fit=crop&auto=format&q=85',
 ];
 
 // ── Popular search tags ──────────────────────────────────────
@@ -62,6 +68,38 @@ export default function Hero() {
   const [current, setCurrent]   = useState(0);
   const [direction, setDirection] = useState(1);
   const { products } = useProducts();
+
+  // Build hero slides using REAL images from DB per preferred category
+  const heroSlides = useMemo(() => {
+    return SLIDE_CONTENT.map((slide, i) => {
+      // Try to find top-rated product image in preferred category
+      const inCategory = [...products]
+        .filter((p) => p.category === slide.preferCategory && p.image_url)
+        .sort((a, b) => (b.rating || 0) - (a.rating || 0));
+
+      // If no match in preferred category, pick any top-rated product image not used yet
+      const anyWithImage = [...products]
+        .filter((p) => p.image_url)
+        .sort((a, b) => (b.rating || 0) - (a.rating || 0));
+
+      const img =
+        inCategory[0]?.image_url ||
+        anyWithImage[i]?.image_url ||
+        anyWithImage[0]?.image_url ||
+        FALLBACK_IMAGES[i];
+
+      // Also attach the matching product name for the floating badge
+      const featuredProduct = inCategory[0] || anyWithImage[i] || anyWithImage[0] || null;
+
+      return { ...slide, image: img, featuredProduct };
+    });
+  }, [products]);
+
+  // Derive dynamic categories from actual products
+  const dynamicCategories = useMemo(() => {
+    const cats = [...new Set(products.map((p) => p.category).filter(Boolean))];
+    return ['All', ...cats.sort()];
+  }, [products]);
 
   // search + filter state
   const [searchQuery, setSearchQuery]     = useState('');
@@ -146,7 +184,7 @@ export default function Hero() {
   const slide = heroSlides[current];
 
   return (
-    <section className={`relative min-h-screen flex items-center overflow-hidden bg-gradient-to-br ${slide.bg} transition-all duration-700`}>
+    <section className={`relative min-h-screen flex items-center bg-gradient-to-br ${slide.bg} transition-all duration-700`} style={{ overflow: 'visible' }}>
       {/* Decorative blobs */}
       <div className="absolute top-20 right-[5%] w-80 h-80 rounded-full bg-rose-pale/30 blur-3xl pointer-events-none" />
       <div className="absolute bottom-10 left-[5%] w-60 h-60 rounded-full bg-gold-light/20 blur-3xl pointer-events-none" />
@@ -257,7 +295,7 @@ export default function Hero() {
                               <div>
                                 <p className="text-[11px] font-bold text-chocolate/50 uppercase tracking-wider mb-2">Category</p>
                                 <div className="flex flex-wrap gap-1.5">
-                                  {FILTER_CATEGORIES.map((cat) => (
+                                {dynamicCategories.map((cat) => (
                                     <button
                                       key={cat}
                                       type="button"
@@ -479,14 +517,22 @@ export default function Hero() {
                   decoding="async"
                   className="w-full h-[400px] lg:h-[500px] object-cover"
                 />
-                {/* Floating badge */}
-                <div className="absolute bottom-6 right-6 bg-white rounded-2xl shadow-card-hover p-4 flex items-center gap-3">
-                  <div className="w-10 h-10 bg-rose-pale rounded-xl flex items-center justify-center">
-                    <span className="text-xl">🎂</span>
+                {/* Floating badge — shows real product from DB */}
+                <div className="absolute bottom-6 right-6 bg-white rounded-2xl shadow-card-hover p-4 flex items-center gap-3 max-w-[180px]">
+                  <div className="w-10 h-10 bg-rose-pale rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden">
+                    {slide.featuredProduct?.image_url ? (
+                      <img src={slide.featuredProduct.image_url} alt="" className="w-full h-full object-cover rounded-xl" />
+                    ) : (
+                      <span className="text-xl">🎂</span>
+                    )}
                   </div>
-                  <div>
-                    <p className="text-xs font-semibold text-chocolate">Feed of the Gods</p>
-                    <p className="text-[10px] text-chocolate/50">Artisan Baked Daily</p>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-chocolate truncate">
+                      {slide.featuredProduct?.name || 'Bakester Special'}
+                    </p>
+                    <p className="text-[10px] text-chocolate/50">
+                      {slide.featuredProduct?.category || 'Artisan Baked Daily'}
+                    </p>
                   </div>
                 </div>
               </div>

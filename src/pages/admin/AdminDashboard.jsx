@@ -92,6 +92,8 @@ function ProductModal({ product, onClose, onSave }) {
     badge:       product?.badge       || '',
     quantity:    product?.quantity    ?? 0,
     in_stock:    product?.in_stock    !== false,
+    recipe:      product?.recipe      || '',
+    weight_g:    product?.weight_g    || '',
   });
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving]       = useState(false);
@@ -259,6 +261,29 @@ function ProductModal({ product, onClose, onSave }) {
               <div className={`w-4 h-4 bg-white rounded-full shadow mt-0.5 transition-transform ${form.in_stock ? 'translate-x-5' : 'translate-x-0.5'}`} />
             </div>
           </div>
+
+          {/* Weight (for servings calc) */}
+          {(form.category === 'Speciality' || form.category === 'Cakes' || form.category === 'Celebration') && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Cake Weight (grams)</label>
+              <input type="number" step="50" min="0" value={form.weight_g}
+                onChange={(e) => setForm((f) => ({ ...f, weight_g: e.target.value }))}
+                className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:border-rose-400 text-sm outline-none bg-white text-gray-800"
+                placeholder="e.g. 500" />
+              <p className="text-xs text-gray-400 mt-1">Used to estimate servings (approx 85g per person)</p>
+            </div>
+          )}
+
+          {/* Recipe — shown when Speciality category */}
+          {form.category === 'Speciality' && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Recipe / How It's Made 👩‍🍳</label>
+              <textarea value={form.recipe} onChange={(e) => setForm((f) => ({ ...f, recipe: e.target.value }))}
+                className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:border-rose-400 text-sm outline-none bg-white text-gray-800 resize-none"
+                rows={5} placeholder="Describe the key ingredients, process, and what makes this cake special..." />
+              <p className="text-xs text-gray-400 mt-1">This recipe story is shown to customers on the speciality cakes page.</p>
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex gap-3 pt-1">

@@ -4,9 +4,18 @@ import { FiShoppingCart } from 'react-icons/fi';
 import { HiStar, HiHeart, HiOutlineHeart } from 'react-icons/hi2';
 import { useCart } from '../../context/CartContext';
 
-export default function ProductCard({ product, size = 'md' }) {
+// Estimate servings from weight (approx 85g per serving)
+function calcServings(product) {
+  // Try weight_g field first, then parse from name/description
+  const weight = product.weight_g || product.weight;
+  if (!weight || isNaN(Number(weight))) return null;
+  const servings = Math.round(Number(weight) / 85);
+  return servings >= 1 ? servings : null;
+}
+
+export default function ProductCard({ product, size = 'md', onWishlistToggle, isWishlisted = false }) {
   const { addItem } = useCart();
-  const [liked,     setLiked]     = useState(false);
+  const [liked,     setLiked]     = useState(isWishlisted);
   const [added,     setAdded]     = useState(false);
 
   const imageSrc   = product.image_url || product.image || '';
@@ -14,6 +23,7 @@ export default function ProductCard({ product, size = 'md' }) {
   const badge      = product.badge?.trim() || null;
   const hasRating  = product.rating && product.rating > 0;
   const isLarge    = size === 'lg';
+  const servings   = calcServings(product);
 
   const handleAdd = (e) => {
     e.preventDefault();
@@ -26,7 +36,9 @@ export default function ProductCard({ product, size = 'md' }) {
   const handleLike = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    setLiked((v) => !v);
+    const next = !liked;
+    setLiked(next);
+    onWishlistToggle?.(product, next);
   };
 
   return (
@@ -125,11 +137,16 @@ export default function ProductCard({ product, size = 'md' }) {
         {/* Price + CTA */}
         <div className="flex items-center justify-between mt-auto pt-2">
           <div>
-            <span className="font-serif text-base sm:text-lg font-bold text-chocolate">
-              ₹{product.price?.toFixed(0)}
+            <span className="font-serif text-lg sm:text-xl font-bold text-chocolate">
+              <span className="text-base sm:text-lg">₹</span>{product.price?.toFixed(0)}
             </span>
+            {servings && (
+              <p className="text-[10px] sm:text-[11px] text-chocolate/50 mt-0.5">
+                Serves ~{servings} {servings === 1 ? 'person' : 'people'}
+              </p>
+            )}
             {product.quantity > 0 && !outOfStock && (
-              <p className="text-[9px] sm:text-[10px] text-chocolate/40 mt-0.5">
+              <p className="text-[10px] sm:text-[11px] text-amber-600 font-medium mt-0.5">
                 {product.quantity} left
               </p>
             )}

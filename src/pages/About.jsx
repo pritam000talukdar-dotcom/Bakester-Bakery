@@ -93,8 +93,8 @@ export default function About() {
                 <div className="absolute inset-4 bg-rose-pale/40 rounded-3xl rotate-2" />
                 <div className="relative rounded-3xl overflow-hidden shadow-2xl">
                   <img
-                    src="https://images.unsplash.com/photo-1517433670267-08bbd4be890f?w=700&h=500&fit=crop"
-                    alt="Bakester Bakery storefront"
+                    src="https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=700&h=500&fit=crop&auto=format&q=85"
+                    alt="Bakester Bakery freshly baked cakes"
                     className="w-full h-[480px] object-cover"
                   />
                 </div>

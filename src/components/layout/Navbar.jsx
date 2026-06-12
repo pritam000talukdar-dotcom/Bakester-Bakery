@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FiShoppingCart, FiUser, FiSearch, FiMenu, FiX, FiChevronDown, FiSettings } from 'react-icons/fi';
@@ -15,13 +15,11 @@ const navLinks = [
   { label: 'Contact', to: '/contact' },
 ];
 
-const FILTER_CATEGORIES = ['All', 'Cakes', 'Brownies', 'Tarts', 'Celebration'];
 const PRICE_RANGES = [
-  { label: 'Any Price', min: 0, max: Infinity },
-  { label: 'Under $35',  min: 0, max: 35 },
-  { label: '$35 – $50', min: 35, max: 50 },
-  { label: '$50 – $80', min: 50, max: 80 },
-  { label: '$80+',       min: 80, max: Infinity },
+  { label: 'Any Price',    min: 0,   max: Infinity },
+  { label: 'Under ₹100',  min: 0,   max: 100 },
+  { label: '₹100 – ₹150', min: 100, max: 150 },
+  { label: '₹150+',        min: 150, max: Infinity },
 ];
 const RATINGS = [
   { label: 'Any Rating', value: 0 },
@@ -51,17 +49,18 @@ function BakeryLogo({ className = '' }) {
 }
 
 // ── Filter Dropdown panel ────────────────────────────────────
-function FilterDropdown({ category, setCategory, priceRange, setPriceRange, rating, setRating, onClear, activeCount }) {
+function FilterDropdown({ category, setCategory, categories, priceRange, setPriceRange, rating, setRating, onClear, activeCount }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: -6, scale: 0.97 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -6, scale: 0.97 }}
       transition={{ duration: 0.18 }}
-      className="absolute right-0 top-full mt-2 w-64 bg-white rounded-2xl shadow-card-hover border border-cream-200 z-50 overflow-hidden"
+      className="absolute right-0 top-full mt-2 w-72 bg-white rounded-2xl shadow-card-hover border border-cream-200 z-[200] overflow-hidden"
+      style={{ maxHeight: '80vh', overflowY: 'auto' }}
     >
       {/* header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-cream-100">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-cream-100 sticky top-0 bg-white">
         <span className="text-xs font-bold text-chocolate uppercase tracking-wider">Filters</span>
         {activeCount > 0 && (
           <button onClick={onClear} className="text-[11px] text-rose-bakery font-semibold hover:text-rose-dark transition-colors">
@@ -75,7 +74,7 @@ function FilterDropdown({ category, setCategory, priceRange, setPriceRange, rati
         <div>
           <p className="text-[11px] font-bold text-chocolate/50 uppercase tracking-wider mb-2">Category</p>
           <div className="flex flex-wrap gap-1.5">
-            {FILTER_CATEGORIES.map((cat) => (
+            {categories.map((cat) => (
               <button
                 key={cat}
                 onClick={() => setCategory(cat)}
@@ -161,6 +160,12 @@ export default function Navbar({ onOpenAuthModal }) {
   const { products } = useProducts();
   const location = useLocation();
   const navigate  = useNavigate();
+
+  // Derive dynamic categories from products
+  const dynamicCategories = useMemo(() => {
+    const cats = [...new Set(products.map((p) => p.category).filter(Boolean))];
+    return ['All', ...cats.sort()];
+  }, [products]);
 
   // Get user initials for avatar
   const getUserInitials = () => {
@@ -462,6 +467,7 @@ export default function Navbar({ onOpenAuthModal }) {
                           {filterOpen && (
                             <FilterDropdown
                               category={category} setCategory={setCategory}
+                              categories={dynamicCategories}
                               priceRange={priceRange} setPriceRange={setPriceRange}
                               rating={rating} setRating={setRating}
                               onClear={clearFilters}

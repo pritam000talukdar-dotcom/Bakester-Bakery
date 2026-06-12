@@ -167,8 +167,6 @@ export default function Products() {
   const [minRating,      setMinRating]      = useState(0);
   const [sortBy,         setSortBy]         = useState('newest');
   const [filtersOpen,    setFiltersOpen]    = useState(false);
-  // Toggle: false = show all, true = in-stock only
-  const [stockOnly,      setStockOnly]      = useState(false);
 
   useEffect(() => {
     const q   = searchParams.get('q') || '';
@@ -187,7 +185,6 @@ export default function Products() {
     activeCategory !== 'All',
     priceRange.label !== 'Any Price',
     minRating > 0,
-    stockOnly,
   ].filter(Boolean).length;
 
   // Filtered + sorted products
@@ -208,10 +205,6 @@ export default function Products() {
       list = list.filter((p) => p.category === activeCategory);
     }
 
-    if (stockOnly) {
-      list = list.filter((p) => p.in_stock !== false);
-    }
-
     list = list.filter((p) => p.price >= priceRange.min && p.price <= priceRange.max);
 
     if (minRating > 0) {
@@ -226,7 +219,7 @@ export default function Products() {
     }
 
     return list;
-  }, [products, searchQuery, activeCategory, priceRange, minRating, sortBy, stockOnly]);
+  }, [products, searchQuery, activeCategory, priceRange, minRating, sortBy]);
 
   const clearAllFilters = () => {
     setSearchQuery('');
@@ -234,7 +227,6 @@ export default function Products() {
     setPriceRange(PRICE_RANGES[0]);
     setMinRating(0);
     setSortBy('newest');
-    setStockOnly(false);
     setSearchParams({});
   };
 
@@ -444,19 +436,6 @@ export default function Products() {
                     )}
                   </p>
 
-                  {/* In-stock toggle chip */}
-                  <button
-                    onClick={() => setStockOnly(!stockOnly)}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
-                      stockOnly
-                        ? 'bg-emerald-50 border-emerald-400 text-emerald-700'
-                        : 'bg-white border-cream-200 text-chocolate/60 hover:border-rose-bakery hover:text-rose-bakery'
-                    }`}
-                  >
-                    <span className={`w-1.5 h-1.5 rounded-full ${stockOnly ? 'bg-emerald-500' : 'bg-gray-300'}`} />
-                    In stock only
-                  </button>
-
                   {/* Active filter pills */}
                   {activeCategory !== 'All' && <FilterPill label={activeCategory} onRemove={() => setActiveCategory('All')} />}
                   {priceRange.label !== 'Any Price' && <FilterPill label={priceRange.label} onRemove={() => setPriceRange(PRICE_RANGES[0])} />}
@@ -500,7 +479,7 @@ export default function Products() {
                 </motion.div>
               ) : (
                 <motion.div
-                  key={`${activeCategory}-${sortBy}-${stockOnly}`}
+                  key={`${activeCategory}-${sortBy}`}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.2 }}
