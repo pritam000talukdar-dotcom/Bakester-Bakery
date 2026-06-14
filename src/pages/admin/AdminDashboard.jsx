@@ -6,10 +6,47 @@ import {
   FiUpload, FiX, FiCheck, FiAlertCircle, FiRefreshCw, FiSearch,
   FiDollarSign, FiStar, FiArrowLeft, FiAlertTriangle,
   FiLayers, FiBarChart2, FiGrid, FiMenu,
-  FiTrendingUp, FiDownload,
+  FiTrendingUp, FiDownload, FiBell, FiInfo,
+  FiMessageSquare, FiToggleLeft, FiToggleRight, FiXCircle, FiCheckCircle, FiClock,
+  FiUsers, FiRepeat, FiHeart, FiAward, FiShoppingCart, FiTrash, FiCalendar,
 } from 'react-icons/fi';
+import {
+  PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine,
+} from 'recharts';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
+
+// ── Stock buffer — users see this many fewer units than the DB holds ──────────
+const STOCK_BUFFER = 5;
+
+// ── Notification helpers ──────────────────────────────────────────────────────
+const NOTIF_STORAGE_KEY = 'bakester_admin_notifications';
+function loadStoredNotifications() {
+  try {
+    const raw = localStorage.getItem(NOTIF_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+function saveNotifications(notifs) {
+  try { localStorage.setItem(NOTIF_STORAGE_KEY, JSON.stringify(notifs.slice(0, 50))); } catch {}
+}
+function buildNotification(message, entityId, type = 'out_of_stock') {
+  const displayMessage =
+    type === 'out_of_stock'
+      ? `"${message}" is now Out of Stock!`
+      : message; // ready_pickup and cancelled pass the full message directly
+  return {
+    id: `${entityId}_${Date.now()}`,
+    entityId,
+    type,
+    message: displayMessage,
+    time: new Date().toISOString(),
+    read: false,
+    // For order notifications, clicking the bell will jump to orders tab
+    targetTab: (type === 'ready_pickup' || type === 'cancelled') ? 'orders' : null,
+  };
+}
 
 // ── Constants ────────────────────────────────────────────────
 const statusColors = {
@@ -26,6 +63,18 @@ const statusDot = {
 };
 const STATUSES = ['Processing', 'Shipped', 'Delivered', 'Cancelled'];
 const CATEGORIES = ['Cakes', 'Brownies', 'Tarts', 'Celebration', 'Speciality'];
+
+// ── Admin Purchases (raw material orders) — localStorage ──────
+const ADMIN_PURCHASES_KEY = 'bakester_admin_purchases';
+function loadAdminPurchases() {
+  try {
+    const raw = localStorage.getItem(ADMIN_PURCHASES_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+function saveAdminPurchases(list) {
+  try { localStorage.setItem(ADMIN_PURCHASES_KEY, JSON.stringify(list)); } catch {}
+}
 
 // ── Toast ─────────────────────────────────────────────────────
 function Toast({ message, type = 'success', onDismiss }) {
@@ -61,17 +110,17 @@ function InlineEdit({ value, onSave, prefix = '', step = '0.01' }) {
   };
   if (editing) return (
     <div className="flex items-center gap-1">
-      {prefix && <span className="text-gray-400 text-sm">{prefix}</span>}
+      {prefix && <span className="text-white text-sm">{prefix}</span>}
       <input ref={inputRef} type="number" step={step} min="0" value={val}
         onChange={(e) => setVal(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }}
-        className="w-20 px-2 py-1 border-2 border-rose-400 rounded-lg text-sm outline-none text-right font-bold text-gray-800 bg-white" />
+        className="w-20 px-2 py-1 border-2 border-rose-400 rounded-lg text-sm outline-none text-right font-bold text-white bg-transparent" />
     </div>
   );
   return (
     <button onClick={() => setEditing(true)}
-      className="flex items-center gap-1 font-semibold text-gray-800 hover:text-rose-500 transition-colors group"
+      className="flex items-center gap-1 font-semibold text-white hover:text-white transition-colors group"
       title="Click to edit">
       {prefix}{typeof value === 'number' ? (step === '1' ? value : value?.toFixed(2)) : value}
       <FiEdit2 size={10} className="opacity-0 group-hover:opacity-100 text-rose-400 transition-opacity ml-0.5" />
@@ -260,6 +309,10 @@ function ProductModal({ product, onClose, onSave, isDark, T }) {
                 onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))}
                 className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none"
                 style={inputStyle} />
+              <p className="text-[10px] mt-1 flex items-center gap-1" style={{ color: T?.textMuted || '#9ca3af' }}>
+                <FiInfo size={9} />
+                Users see {Math.max(0, Number(form.quantity || 0) - STOCK_BUFFER)} (actual&nbsp;−&nbsp;{STOCK_BUFFER})
+              </p>
             </div>
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: labelColor }}>Rating</label>
@@ -430,48 +483,155 @@ function ProductCard({ product, onEdit, onDelete, onInlineUpdate }) {
   );
 }
 
-// ── Mobile card for an order row ─────────────────────────────
-function OrderCard({ order, onStatusChange }) {
+// ── Rich Admin Order Card ─────────────────────────────────────
+function AdminOrderCard({ order, onStatusChange, onReadyForPickup, onCancelOrder, T, isDark }) {
+  const items = Array.isArray(order.items) ? order.items : [];
+  const totalItems = items.reduce((s, i) => s + (i.qty || i.quantity || 1), 0);
+  const sizeBadge =
+    totalItems <= 2 ? { label: 'Small Order', color: 'bg-blue-50 text-blue-700 border-blue-200' }
+    : totalItems <= 4 ? { label: 'Medium Order', color: 'bg-purple-50 text-purple-700 border-purple-200' }
+    : { label: 'Large Order', color: 'bg-orange-50 text-orange-700 border-orange-200' };
+
+  const isCancelled = order.status === 'Cancelled';
+  const isPickupReady = order.ready_for_pickup;
+
+  const cardBg = isDark ? '#1c1c1f' : '#ffffff';
+  const borderCol = isDark
+    ? isCancelled ? 'rgba(239,68,68,0.25)' : isPickupReady ? 'rgba(16,185,129,0.3)' : 'rgba(255,255,255,0.1)'
+    : isCancelled ? '#fecaca' : isPickupReady ? '#6ee7b7' : '#e5e7eb';
+
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm space-y-3">
-      <div className="flex items-start justify-between gap-3">
+    <div className="rounded-2xl border overflow-hidden shadow-sm transition-all"
+      style={{ background: cardBg, borderColor: borderCol }}>
+
+      {/* ── Header strip */}
+      <div className="flex items-center justify-between px-4 py-3 border-b"
+        style={{ borderColor: isDark ? 'rgba(255,255,255,0.07)' : '#f3f4f6', background: isDark ? 'rgba(255,255,255,0.03)' : '#fafafa' }}>
         <div className="flex items-center gap-2.5">
-          <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 mt-0.5 ${statusDot[order.status] || 'bg-gray-300'}`} />
+          <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${statusDot[order.status] || 'bg-gray-300'}`} />
           <div>
-            <p className="font-semibold text-gray-800 text-sm">{order.order_number}</p>
-            <p className="text-xs text-gray-400">
-              {new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+            <p className="font-bold text-sm" style={{ color: isDark ? '#fafafa' : '#111827' }}>{order.order_number}</p>
+            <p className="text-[10px]" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9ca3af' }}>
+              {new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
             </p>
           </div>
         </div>
-        <div className="text-right flex-shrink-0">
-          <p className="font-bold text-gray-900 text-sm">₹{order.total?.toFixed(0)}</p>
-          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${statusColors[order.status] || statusColors.Processing}`}>
+        <div className="flex items-center gap-2">
+          {/* Order size badge */}
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border ${sizeBadge.color}`}>
+            {sizeBadge.label}
+          </span>
+          {/* Status badge */}
+          <span className={`text-[10px] px-2.5 py-1 rounded-full font-medium border ${statusColors[order.status] || statusColors.Processing}`}>
             {order.status}
           </span>
+          {/* Ready for pickup glow badge */}
+          {isPickupReady && (
+            <span className="text-[10px] px-2.5 py-1 rounded-full font-bold bg-emerald-500 text-white flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+              Ready!
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Guest info */}
-      {(order.guest_name || order.address) && (
-        <div className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 space-y-0.5">
-          {order.guest_name && <p>👤 {order.guest_name}{order.guest_phone ? ` · ${order.guest_phone}` : ''}</p>}
-          {order.address && <p>📍 {order.address}</p>}
+      <div className="p-4 space-y-3">
+        {/* Customer info */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : '#6b7280' }}>
+          {(order.guest_name) && <span>👤 <strong style={{ color: isDark ? '#fafafa' : '#374151' }}>{order.guest_name}</strong></span>}
+          {order.guest_phone && <span>📞 {order.guest_phone}</span>}
+          {order.address && <span className="flex-1">📍 {order.address}</span>}
         </div>
-      )}
 
-      {/* Items mini preview */}
-      {Array.isArray(order.items) && order.items.length > 0 && (
-        <p className="text-xs text-gray-400">
-          {order.items.map((i) => `${i.name} ×${i.qty || 1}`).join(', ')}
-        </p>
-      )}
+        {/* Special Notes — highlighted */}
+        {order.special_notes && (
+          <div className="flex items-start gap-2 p-3 rounded-xl border"
+            style={{ background: isDark ? 'rgba(245,158,11,0.1)' : '#fffbeb', borderColor: isDark ? 'rgba(245,158,11,0.25)' : '#fde68a' }}>
+            <FiMessageSquare size={13} className="text-amber-500 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-500 mb-0.5">Special Notes</p>
+              <p className="text-xs font-medium" style={{ color: isDark ? '#fcd34d' : '#92400e' }}>{order.special_notes}</p>
+            </div>
+          </div>
+        )}
 
-      {/* Status changer */}
-      <select value={order.status} onChange={(e) => onStatusChange(order.id, e.target.value)}
-        className="w-full text-xs px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 outline-none cursor-pointer">
-        {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-      </select>
+        {/* Items list */}
+        {items.length > 0 && (
+          <div className="rounded-xl overflow-hidden border" style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#f3f4f6' }}>
+            <div className="px-3 py-2 border-b flex items-center justify-between"
+              style={{ borderColor: isDark ? 'rgba(255,255,255,0.06)' : '#f3f4f6', background: isDark ? 'rgba(255,255,255,0.04)' : '#f9fafb' }}>
+              <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9ca3af' }}>
+                Order Items ({totalItems} unit{totalItems !== 1 ? 's' : ''})
+              </span>
+              <span className="text-sm font-bold" style={{ color: isDark ? '#fafafa' : '#111827' }}>₹{order.total?.toFixed(0)}</span>
+            </div>
+            <div className="divide-y" style={{ borderColor: isDark ? 'rgba(255,255,255,0.06)' : '#f9fafb' }}>
+              {items.map((item, idx) => (
+                <div key={idx} className="flex items-center gap-3 px-3 py-2.5">
+                  {item.image ? (
+                    <img src={item.image} alt={item.name} className="w-9 h-9 rounded-lg object-cover flex-shrink-0" />
+                  ) : (
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg flex-shrink-0"
+                      style={{ background: isDark ? 'rgba(255,255,255,0.06)' : '#f3f4f6' }}>🎂</div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold truncate" style={{ color: isDark ? '#fafafa' : '#111827' }}>{item.name}</p>
+                    {item.category && <p className="text-[10px]" style={{ color: isDark ? 'rgba(255,255,255,0.35)' : '#9ca3af' }}>{item.category}</p>}
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-xs font-bold" style={{ color: isDark ? '#fafafa' : '#111827' }}>₹{((item.price || 0) * (item.qty || item.quantity || 1)).toFixed(0)}</p>
+                    <p className="text-[10px]" style={{ color: isDark ? 'rgba(255,255,255,0.35)' : '#9ca3af' }}>×{item.qty || item.quantity || 1} @ ₹{item.price?.toFixed(0)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Admin Actions row */}
+        {!isCancelled && (
+          <div className="flex items-center gap-2 pt-1">
+            {/* Ready for Pickup toggle */}
+            <button
+              onClick={() => !isPickupReady && onReadyForPickup(order.id, order.order_number, order.guest_name)}
+              disabled={isPickupReady}
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex-1 justify-center ${
+                isPickupReady
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 cursor-default'
+                  : 'border-gray-200 text-gray-500 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 cursor-pointer'
+              }`}
+              style={isPickupReady ? {} : { background: isDark ? 'rgba(255,255,255,0.04)' : 'transparent', borderColor: isDark ? 'rgba(255,255,255,0.12)' : '#e5e7eb', color: isDark ? 'rgba(255,255,255,0.5)' : '#6b7280' }}
+            >
+              {isPickupReady
+                ? <><FiCheckCircle size={13} /> Ready for Pickup ✓</>
+                : <><FiToggleLeft size={13} /> Mark Ready for Pickup</>}
+            </button>
+
+            {/* Cancel Order */}
+            <button
+              onClick={() => onCancelOrder(order.id, order.order_number)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all"
+              style={{ color: '#ef4444', borderColor: isDark ? 'rgba(239,68,68,0.25)' : '#fecaca', background: isDark ? 'rgba(239,68,68,0.08)' : '#fff5f5' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = isDark ? 'rgba(239,68,68,0.18)' : '#fee2e2'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = isDark ? 'rgba(239,68,68,0.08)' : '#fff5f5'; }}
+            >
+              <FiXCircle size={13} /> Cancel
+            </button>
+          </div>
+        )}
+
+        {/* Cancelled by admin label */}
+        {isCancelled && order.cancelled_by_admin && (
+          <p className="text-[10px] text-red-500 font-semibold text-center py-1">⛔ Cancelled by admin</p>
+        )}
+
+        {/* Status dropdown */}
+        <select value={order.status} onChange={(e) => onStatusChange(order.id, e.target.value)}
+          className="w-full text-xs px-3 py-2 rounded-xl border outline-none cursor-pointer transition-all"
+          style={{ background: isDark ? 'rgba(255,255,255,0.06)' : '#f9fafb', borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#e5e7eb', color: isDark ? '#fafafa' : '#374151' }}>
+          {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </div>
     </div>
   );
 }
@@ -498,13 +658,66 @@ export default function AdminDashboard() {
   const [orderSearch, setOrderSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
 
-  // Images
+  // Images (kept for backward compat, tab removed from sidebar)
   const [uploadedImages, setUploadedImages] = useState([]);
   const [imagesLoading, setImagesLoading] = useState(false);
   const dropRef = useRef(null);
 
+  // Admin Purchases (raw material ledger)
+  const [adminPurchases, setAdminPurchases] = useState(() => loadAdminPurchases());
+
   // Stats
   const [stats, setStats] = useState({ products: 0, orders: 0, revenue: 0, lowStock: 0, outOfStock: 0 });
+
+  // ── Notifications ─────────────────────────────────────────────
+  const [notifications, setNotifications] = useState(() => loadStoredNotifications());
+  const [notifOpen, setNotifOpen] = useState(false);
+  const notifPanelRef = useRef(null);
+  const prevQtyRef = useRef({}); // track previous quantities for Realtime diff
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
+
+  const addNotification = useCallback((productName, productId, type = 'out_of_stock') => {
+    const notif = buildNotification(productName, productId, type);
+    setNotifications((prev) => {
+      const next = [notif, ...prev].slice(0, 50);
+      saveNotifications(next);
+      return next;
+    });
+  }, []);
+
+  const markAllRead = useCallback(() => {
+    setNotifications((prev) => {
+      const next = prev.map((n) => ({ ...n, read: true }));
+      saveNotifications(next);
+      return next;
+    });
+  }, []);
+
+  const markOneRead = useCallback((id) => {
+    setNotifications((prev) => {
+      const next = prev.map((n) => n.id === id ? { ...n, read: true } : n);
+      saveNotifications(next);
+      return next;
+    });
+  }, []);
+
+  const clearAllNotifications = useCallback(() => {
+    setNotifications([]);
+    saveNotifications([]);
+  }, []);
+
+  // Close notification panel when clicking outside
+  useEffect(() => {
+    if (!notifOpen) return;
+    const handler = (e) => {
+      if (notifPanelRef.current && !notifPanelRef.current.contains(e.target)) {
+        setNotifOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [notifOpen]);
 
   const addToast = useCallback((message, type = 'success') => {
     const id = Date.now();
@@ -519,10 +732,16 @@ export default function AdminDashboard() {
       const { data, error } = await supabase.from('products').select('*').order('created_at', { ascending: false });
       if (error) throw error;
       setProducts(data || []);
+      // Seed the previous-quantity tracker so Realtime diffs are accurate
+      const qtyMap = {};
+      (data || []).forEach((p) => { qtyMap[p.id] = p.quantity ?? 0; });
+      prevQtyRef.current = qtyMap;
       setStats((s) => ({
         ...s,
         products: data?.length || 0,
-        lowStock: (data || []).filter((p) => (p.quantity ?? 0) > 0 && (p.quantity ?? 0) < 5).length,
+        // Admin low-stock: actual qty > 0 and <= STOCK_BUFFER
+        lowStock: (data || []).filter((p) => (p.quantity ?? 0) > 0 && (p.quantity ?? 0) <= STOCK_BUFFER).length,
+        // Admin out-of-stock: in_stock false OR qty == 0
         outOfStock: (data || []).filter((p) => !p.in_stock || (p.quantity ?? 0) === 0).length,
       }));
     } catch (err) {
@@ -564,38 +783,100 @@ export default function AdminDashboard() {
   }, [addToast]);
 
   useEffect(() => { loadProducts(); loadOrders(); }, [loadProducts, loadOrders]);
+
+  // ── Realtime subscription: watch for out-of-stock events ─────
+  useEffect(() => {
+    const channel = supabase
+      .channel('admin-stock-watcher')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'products' }, (payload) => {
+        const updated = payload.new;
+        const prev = payload.old;
+        const newQty = updated.quantity ?? 0;
+        const oldQty = prev.quantity ?? 0;
+
+        // Crossed into out-of-stock territory (qty dropped to <= STOCK_BUFFER)
+        if (newQty <= STOCK_BUFFER && oldQty > STOCK_BUFFER) {
+          addNotification(updated.name, updated.id, 'out_of_stock');
+          addToast(`⚠️ "${updated.name}" is now Out of Stock!`, 'error');
+        } else if (newQty <= STOCK_BUFFER && newQty > 0 && oldQty > STOCK_BUFFER) {
+          // low stock edge case already covered above, but keep as fallback
+        } else if (!updated.in_stock && prev.in_stock) {
+          // in_stock toggled off manually
+          addNotification(updated.name, updated.id, 'out_of_stock');
+        }
+
+        // Update local products state
+        setProducts((prev) => prev.map((p) => p.id === updated.id ? updated : p));
+        prevQtyRef.current[updated.id] = newQty;
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [addNotification, addToast]);
   useEffect(() => { if (activeTab === 'images') loadImages(); }, [activeTab, loadImages]);
 
   // ── CRUD Handlers ────────────────────────────────────────
   const handleInlineUpdate = async (productId, field, value) => {
     try {
       const extra = {};
-      if (field === 'quantity') { extra.in_stock = Number(value) > 0; }
+      if (field === 'quantity') {
+        const numVal = Number(value);
+        // Auto out-of-stock when qty hits the buffer zone
+        extra.in_stock = numVal > STOCK_BUFFER;
+        // Fire a notification if crossing into out-of-stock
+        const prevQty = prevQtyRef.current[productId] ?? Infinity;
+        if (numVal <= STOCK_BUFFER && prevQty > STOCK_BUFFER) {
+          const product = products.find((p) => p.id === productId);
+          if (product) addNotification(product.name, productId, 'out_of_stock');
+        }
+        prevQtyRef.current[productId] = numVal;
+      }
       const { error } = await supabase
         .from('products')
         .update({ [field]: value, ...extra, updated_at: new Date().toISOString() })
         .eq('id', productId);
       if (error) throw error;
       setProducts((prev) => prev.map((p) => p.id === productId ? { ...p, [field]: value, ...extra } : p));
-      addToast(
-        field === 'price'
-          ? 'Price updated!'
-          : `Quantity updated! ${Number(value) === 0 ? '(Marked out of stock)' : Number(value) < 5 ? '(Low stock warning)' : ''}`
-      );
+      if (field === 'quantity') {
+        const numVal = Number(value);
+        addToast(
+          numVal === 0
+            ? '⚠️ Quantity set to 0 — product marked Out of Stock'
+            : numVal <= STOCK_BUFFER
+            ? `⚠️ Quantity = ${numVal} — product marked Out of Stock for users`
+            : 'Quantity updated!'
+        );
+      } else {
+        addToast('Price updated!');
+      }
     } catch (err) {
       addToast('Update failed: ' + err.message, 'error');
     }
   };
 
   const handleSaveProduct = async (formData) => {
+    // Auto out-of-stock when actual qty is within the buffer zone
+    const autoData = { ...formData };
+    if (Number(autoData.quantity) <= STOCK_BUFFER) {
+      autoData.in_stock = false;
+    }
     if (editingProduct) {
-      const { error } = await supabase.from('products').update({ ...formData, updated_at: new Date().toISOString() }).eq('id', editingProduct.id);
+      const { error } = await supabase.from('products').update({ ...autoData, updated_at: new Date().toISOString() }).eq('id', editingProduct.id);
       if (error) throw error;
-      addToast('Product updated!');
+      if (Number(autoData.quantity) <= STOCK_BUFFER) {
+        addNotification(autoData.name, editingProduct.id, 'out_of_stock');
+        addToast(`⚠️ "${autoData.name}" saved as Out of Stock (qty ≤ ${STOCK_BUFFER})`, 'error');
+      } else {
+        addToast('Product updated!');
+      }
     } else {
-      const { error } = await supabase.from('products').insert(formData);
+      const { error } = await supabase.from('products').insert(autoData);
       if (error) throw error;
-      addToast('Product added!');
+      if (Number(autoData.quantity) <= STOCK_BUFFER) {
+        addToast(`⚠️ "${autoData.name}" added as Out of Stock (qty ≤ ${STOCK_BUFFER})`, 'error');
+      } else {
+        addToast('Product added!');
+      }
     }
     loadProducts();
     setEditingProduct(null);
@@ -624,6 +905,36 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleReadyForPickup = async (orderId, orderNumber, customerName) => {
+    try {
+      const { error } = await supabase.from('orders')
+        .update({ ready_for_pickup: true, status: 'Shipped', updated_at: new Date().toISOString() })
+        .eq('id', orderId);
+      if (error) throw error;
+      setOrders((p) => p.map((o) => o.id === orderId ? { ...o, ready_for_pickup: true, status: 'Shipped' } : o));
+      const msg = `Order ${orderNumber} is Ready for Pickup${customerName ? ` — ${customerName}` : ''}`;
+      addNotification(msg, orderId, 'ready_pickup');
+      addToast(`🎉 ${orderNumber} marked Ready for Pickup!`);
+    } catch (err) {
+      addToast('Failed: ' + err.message, 'error');
+    }
+  };
+
+  const handleCancelOrder = async (orderId, orderNumber) => {
+    if (!confirm(`Cancel order "${orderNumber}"? This cannot be undone.`)) return;
+    try {
+      const { error } = await supabase.from('orders')
+        .update({ status: 'Cancelled', cancelled_by_admin: true, updated_at: new Date().toISOString() })
+        .eq('id', orderId);
+      if (error) throw error;
+      setOrders((p) => p.map((o) => o.id === orderId ? { ...o, status: 'Cancelled', cancelled_by_admin: true } : o));
+      addNotification(`Order ${orderNumber} was cancelled by admin`, orderId, 'cancelled');
+      addToast(`Order ${orderNumber} cancelled.`, 'error');
+    } catch (err) {
+      addToast('Cancel failed: ' + err.message, 'error');
+    }
+  };
+
   const handleImagesDrop = async (files) => {
     const arr = Array.from(files).filter((f) => f.type.startsWith('image/'));
     if (!arr.length) return;
@@ -644,6 +955,23 @@ export default function AdminDashboard() {
     setUploadedImages((p) => p.filter((i) => i.name !== name));
     addToast('Image deleted.');
   };
+
+  // ── Admin Purchase Handlers ───────────────────────────────
+  const handleAddPurchase = useCallback((item) => {
+    setAdminPurchases((prev) => {
+      const next = [item, ...prev];
+      saveAdminPurchases(next);
+      return next;
+    });
+  }, []);
+
+  const handleDeletePurchase = useCallback((id) => {
+    setAdminPurchases((prev) => {
+      const next = prev.filter((p) => p.id !== id);
+      saveAdminPurchases(next);
+      return next;
+    });
+  }, []);
 
   // ── Filters ──────────────────────────────────────────────
   const filteredProducts = products.filter((p) => {
@@ -734,7 +1062,7 @@ export default function AdminDashboard() {
     { id: 'dashboard', label: 'Dashboard',  icon: FiBarChart2 },
     { id: 'inventory', label: 'Inventory',  icon: FiPackage },
     { id: 'orders',    label: 'Orders',     icon: FiShoppingBag },
-    { id: 'images',    label: 'Images',     icon: FiImage },
+    { id: 'myorders',  label: 'My Orders',  icon: FiShoppingCart },
     { id: 'analytics', label: 'Analytics', icon: FiTrendingUp },
   ];
 
@@ -753,8 +1081,9 @@ export default function AdminDashboard() {
     count: products.filter((p) => p.category === cat).length,
   })).filter((c) => c.count > 0);
 
+  // Admin sees raw DB quantities, so use those for the alert panels
   const outOfStockItems = products.filter((p) => !p.in_stock || (p.quantity ?? 0) === 0);
-  const lowStockItems   = products.filter((p) => (p.quantity ?? 0) > 0 && (p.quantity ?? 0) < 5);
+  const lowStockItems   = products.filter((p) => (p.quantity ?? 0) > 0 && (p.quantity ?? 0) <= STOCK_BUFFER);
 
   return (
     <div className="min-h-screen flex transition-colors duration-300" style={{ background: T.bg }}>
@@ -765,6 +1094,133 @@ export default function AdminDashboard() {
           {toasts.map((t) => <Toast key={t.id} message={t.message} type={t.type} onDismiss={() => removeToast(t.id)} />)}
         </AnimatePresence>
       </div>
+
+      {/* ── Notification Panel (floating) ── */}
+      <AnimatePresence>
+        {notifOpen && (
+          <motion.div
+            ref={notifPanelRef}
+            initial={{ opacity: 0, y: -10, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.97 }}
+            transition={{ duration: 0.18 }}
+            className="fixed top-14 right-4 sm:right-6 z-[400] w-80 sm:w-96 rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+            style={{
+              background: T.card,
+              border: `1px solid ${T.cardBorder}`,
+              maxHeight: '70vh',
+            }}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0" style={{ borderColor: T.cardBorder }}>
+              <div className="flex items-center gap-2">
+                <FiBell size={15} style={{ color: T.label }} />
+                <span className="text-sm font-bold" style={{ color: T.text }}>Notifications</span>
+                {unreadCount > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold text-white" style={{ background: '#ef4444' }}>
+                    {unreadCount}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {unreadCount > 0 && (
+                  <button onClick={markAllRead}
+                    className="text-[10px] font-semibold px-2 py-1 rounded-lg transition-all"
+                    style={{ color: T.label, border: `1px solid ${T.cardBorder}` }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = T.hover}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                  >
+                    Mark all read
+                  </button>
+                )}
+                {notifications.length > 0 && (
+                  <button onClick={clearAllNotifications}
+                    className="text-[10px] font-semibold px-2 py-1 rounded-lg transition-all"
+                    style={{ color: '#ef4444', border: `1px solid rgba(239,68,68,0.2)` }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.08)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                  >
+                    Clear all
+                  </button>
+                )}
+                <button onClick={() => setNotifOpen(false)}
+                  className="w-6 h-6 flex items-center justify-center rounded-full transition-colors"
+                  style={{ color: T.textSub }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = T.hover}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  <FiX size={12} />
+                </button>
+              </div>
+            </div>
+
+            {/* Notification list */}
+            <div className="overflow-y-auto flex-1">
+              {notifications.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-10 gap-2">
+                  <FiBell size={28} style={{ color: T.textMuted }} />
+                  <p className="text-sm" style={{ color: T.textSub }}>No notifications yet</p>
+                  <p className="text-xs" style={{ color: T.textMuted }}>Out-of-stock alerts will appear here</p>
+                </div>
+              ) : (
+                notifications.map((notif) => (
+                  <div
+                    key={notif.id}
+                    className="flex items-start gap-3 px-4 py-3 border-b transition-all cursor-pointer"
+                    style={{
+                      borderColor: T.cardBorder,
+                      background: notif.read ? 'transparent' : (
+                        notif.type === 'ready_pickup'
+                          ? (isDark ? 'rgba(16,185,129,0.07)' : '#f0fdf4')
+                          : (isDark ? 'rgba(239,68,68,0.07)' : '#fff5f5')
+                      ),
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = T.rowHover}
+                    onMouseLeave={(e) => e.currentTarget.style.background = notif.read ? 'transparent' : (
+                      notif.type === 'ready_pickup'
+                        ? (isDark ? 'rgba(16,185,129,0.07)' : '#f0fdf4')
+                        : (isDark ? 'rgba(239,68,68,0.07)' : '#fff5f5')
+                    )}
+                    onClick={() => {
+                      markOneRead(notif.id);
+                      if (notif.targetTab) {
+                        setActiveTab(notif.targetTab);
+                        setNotifOpen(false);
+                      }
+                    }}
+                  >
+                    {/* Icon — green for pickup ready, red for stock/cancel */}
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
+                      style={{
+                        background: notif.type === 'ready_pickup'
+                          ? (isDark ? 'rgba(16,185,129,0.15)' : '#d1fae5')
+                          : (isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2')
+                      }}>
+                      {notif.type === 'ready_pickup'
+                        ? <FiCheckCircle size={14} className="text-emerald-500" />
+                        : <FiAlertCircle size={14} className="text-red-500" />}
+                    </div>
+                    {/* Text */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold leading-snug" style={{ color: T.text }}>{notif.message}</p>
+                      <p className="text-[10px] mt-1" style={{ color: T.textMuted }}>
+                        {new Date(notif.time).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                      {notif.targetTab && (
+                        <p className="text-[10px] mt-0.5 font-semibold" style={{ color: T.label }}>Click to view orders →</p>
+                      )}
+                    </div>
+                    {/* Unread dot */}
+                    {!notif.read && (
+                      <div className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0 mt-1" />
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Product Modal ── */}
       <AnimatePresence>
@@ -846,6 +1302,29 @@ export default function AdminDashboard() {
                   className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all"
                   style={{ border: `1px solid ${T.cardBorder}`, color: T.textSub, background: T.card }}>
                   <FiRefreshCw size={13} /> Refresh
+                </button>
+                {/* ── Notification Bell ── */}
+                <button
+                  id="admin-notif-bell"
+                  onClick={() => setNotifOpen((o) => !o)}
+                  className="relative w-9 h-9 flex items-center justify-center rounded-xl transition-all"
+                  style={{ border: `1px solid ${T.cardBorder}`, color: T.textSub, background: T.card }}
+                  title="Notifications"
+                  onMouseEnter={(e) => { e.currentTarget.style.background = T.hover; e.currentTarget.style.color = T.text; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = T.card; e.currentTarget.style.color = T.textSub; }}
+                >
+                  <FiBell size={15} />
+                  {unreadCount > 0 && (
+                    <motion.span
+                      key={unreadCount}
+                      initial={{ scale: 0.5 }}
+                      animate={{ scale: 1 }}
+                      className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-[9px] font-bold text-white flex items-center justify-center"
+                      style={{ background: '#ef4444' }}
+                    >
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </motion.span>
+                  )}
                 </button>
                 <button onClick={() => { setEditingProduct(null); setShowModal(true); }}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm font-semibold transition-all"
@@ -1062,6 +1541,23 @@ export default function AdminDashboard() {
                   onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
                   <FiRefreshCw size={14} />
                 </button>
+                {/* Notification bell in inventory header */}
+                <button
+                  id="admin-notif-bell-inventory"
+                  onClick={() => setNotifOpen((o) => !o)}
+                  className="relative w-9 h-9 flex items-center justify-center rounded-xl border transition-all"
+                  style={{ borderColor: T.cardBorder, color: T.textSub, background: 'transparent' }}
+                  title="Notifications"
+                  onMouseEnter={(e) => { e.currentTarget.style.background = T.hover; e.currentTarget.style.color = T.text; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = T.textSub; }}
+                >
+                  <FiBell size={14} />
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-[9px] font-bold text-white flex items-center justify-center" style={{ background: '#ef4444' }}>
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </button>
                 <button onClick={() => { setEditingProduct(null); setShowModal(true); }}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl text-white text-sm font-semibold transition-all"
                   style={{ background: T.accent }}>
@@ -1101,7 +1597,7 @@ export default function AdminDashboard() {
                     <div className="flex items-center gap-2 mb-3">
                       <FiAlertTriangle size={15} className="text-amber-500 flex-shrink-0" />
                       <h3 className="text-sm font-bold text-amber-500">Low Stock ({lowStockItems.length})</h3>
-                      <span className="text-xs text-amber-400 ml-auto hidden sm:inline">Less than 5 units</span>
+                      <span className="text-xs text-amber-400 ml-auto hidden sm:inline">≤ {STOCK_BUFFER} units (hidden from users)</span>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                       {lowStockItems.map((p) => (
@@ -1312,199 +1808,45 @@ export default function AdminDashboard() {
                 <p className="text-sm" style={{ color: T.textSub }}>Orders will appear here once customers place them.</p>
               </div>
             ) : (
-              <>
-                {/* Mobile: cards */}
-                <div className="space-y-3 lg:hidden">
-                  {filteredOrders.map((order) => (
-                    <OrderCard key={order.id} order={order} onStatusChange={handleOrderStatus} />
-                  ))}
-                </div>
-
-                {/* Desktop: table */}
-                <div className="hidden lg:block rounded-xl border shadow-sm overflow-hidden" style={{ background: T.card, borderColor: T.cardBorder }}>
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b text-xs font-semibold uppercase tracking-wider" style={{ borderColor: T.cardBorder, color: T.textSub }}>
-                        <th className="text-left px-5 py-3">Order</th>
-                        <th className="text-left px-4 py-3">Customer</th>
-                        <th className="text-left px-4 py-3">Date</th>
-                        <th className="text-left px-4 py-3">Address</th>
-                        <th className="text-right px-4 py-3">Total</th>
-                        <th className="text-center px-4 py-3">Status</th>
-                        <th className="text-center px-5 py-3">Update</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredOrders.map((order) => (
-                        <tr key={order.id} className="transition-colors"
-                          style={{ borderBottom: `1px solid ${T.cardBorder}` }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = T.rowHover}
-                          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-                          <td className="px-5 py-3.5">
-                            <div className="flex items-center gap-2.5">
-                              <div className={`w-2 h-2 rounded-full flex-shrink-0 ${statusDot[order.status] || 'bg-gray-300'}`} />
-                              <p className="font-semibold text-xs" style={{ color: T.text }}>{order.order_number}</p>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3.5 text-xs" style={{ color: T.textSub }}>
-                            <p>{order.guest_name || (order.user_id ? 'User' : 'Guest')}</p>
-                            {order.guest_phone && <p style={{ color: T.textMuted }}>{order.guest_phone}</p>}
-                          </td>
-                          <td className="px-4 py-3.5 text-xs" style={{ color: T.textMuted }}>
-                            {new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                          </td>
-                          <td className="px-4 py-3.5 text-xs max-w-[150px] truncate" style={{ color: T.textMuted }}>{order.address || '—'}</td>
-                          <td className="px-4 py-3.5 text-right font-bold" style={{ color: T.text }}>₹{order.total?.toFixed(0)}</td>
-                          <td className="px-4 py-3.5 text-center">
-                            <span className={`text-xs px-2.5 py-1 rounded-full font-medium border ${statusColors[order.status] || statusColors.Processing}`}>
-                              {order.status}
-                            </span>
-                          </td>
-                          <td className="px-5 py-3.5 text-center">
-                            <select value={order.status} onChange={(e) => handleOrderStatus(order.id, e.target.value)}
-                              className="text-xs px-3 py-1.5 rounded-lg border outline-none cursor-pointer transition-all"
-                              style={{ background: T.tagBg, borderColor: T.inputBorder, color: T.text }}>
-                              {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                            </select>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
+              /* Rich AdminOrderCard grid — same for all screen sizes */
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {filteredOrders.map((order) => (
+                  <AdminOrderCard
+                    key={order.id}
+                    order={order}
+                    onStatusChange={handleOrderStatus}
+                    onReadyForPickup={handleReadyForPickup}
+                    onCancelOrder={handleCancelOrder}
+                    T={T}
+                    isDark={isDark}
+                  />
+                ))}
+              </div>
             )}
           </div>
         )}
 
-        {/* ─────────── IMAGES TAB ────────────────────────── */}
-        {activeTab === 'images' && (
-          <div className="space-y-4">
-            <div>
-              <h1 className="text-xl font-bold" style={{ color: T.text }}>Image Library</h1>
-              <p className="text-xs sm:text-sm mt-0.5" style={{ color: T.textSub }}>Upload and manage product images</p>
-            </div>
-
-            {/* Drop Zone */}
-            <div ref={dropRef}
-              className="rounded-xl border-2 border-dashed p-8 sm:p-10 text-center cursor-pointer transition-all"
-              style={{ background: T.card, borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#e5e7eb' }}
-              onDragOver={(e) => { e.preventDefault(); dropRef.current.style.borderColor = T.accent; dropRef.current.style.background = T.tagBg; }}
-              onDragLeave={() => { dropRef.current.style.borderColor = isDark ? 'rgba(255,255,255,0.1)' : '#e5e7eb'; dropRef.current.style.background = T.card; }}
-              onDrop={(e) => { e.preventDefault(); dropRef.current.style.borderColor = isDark ? 'rgba(255,255,255,0.1)' : '#e5e7eb'; dropRef.current.style.background = T.card; handleImagesDrop(e.dataTransfer.files); }}>
-              <div className="w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-3" style={{ background: T.tagBg }}>
-                <FiUpload size={22} style={{ color: T.textSub }} />
-              </div>
-              <h3 className="text-sm font-bold mb-1" style={{ color: T.text }}>Upload Product Images</h3>
-              <p className="text-xs mb-4 hidden sm:block" style={{ color: T.textSub }}>Drag and drop images here, or click to browse</p>
-              <label className="px-4 py-2 rounded-xl text-white text-sm font-semibold cursor-pointer transition-all" style={{ background: T.accent }}>
-                <input type="file" multiple accept="image/*" className="hidden" onChange={(e) => handleImagesDrop(e.target.files)} />
-                Browse Files
-              </label>
-              <p className="text-xs mt-3" style={{ color: T.textMuted }}>PNG, JPG, WEBP up to 5MB each</p>
-            </div>
-
-            {/* Image Grid */}
-            <div className="rounded-xl border p-5 shadow-sm" style={{ background: T.card, borderColor: T.cardBorder }}>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-sm font-bold" style={{ color: T.text }}>
-                  Uploaded Images <span className="font-normal" style={{ color: T.textSub }}>({uploadedImages.length})</span>
-                </h2>
-                <button onClick={loadImages}
-                  className="flex items-center gap-1.5 text-xs transition-colors"
-                  style={{ color: T.textSub }}
-                  onMouseEnter={(e) => e.currentTarget.style.color = T.text}
-                  onMouseLeave={(e) => e.currentTarget.style.color = T.textSub}>
-                  <FiRefreshCw size={12} /> Refresh
-                </button>
-              </div>
-              {imagesLoading ? (
-                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
-                  {[1, 2, 3, 4, 5].map((i) => <div key={i} className="aspect-square rounded-xl animate-pulse" style={{ background: T.tagBg }} />)}
-                </div>
-              ) : uploadedImages.length === 0 ? (
-                <div className="text-center py-10">
-                  <p className="text-3xl mb-2">🖼️</p>
-                  <p className="text-sm" style={{ color: T.textSub }}>No images yet. Upload some above!</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                  {uploadedImages.map((img) => (
-                    <motion.div key={img.name} whileHover={{ scale: 1.02 }}
-                      className="group relative aspect-square rounded-xl overflow-hidden border" style={{ background: T.tagBg, borderColor: T.cardBorder }}>
-                      <img src={img.publicUrl} alt={img.name} className="w-full h-full object-cover" />
-                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 p-2">
-                        <button onClick={() => { navigator.clipboard.writeText(img.publicUrl); addToast('URL copied!'); }}
-                          className="w-full py-1.5 rounded-lg bg-white text-gray-800 text-xs font-semibold hover:bg-gray-100 transition-all">
-                          Copy URL
-                        </button>
-                        <button onClick={() => handleDeleteImage(img.name)}
-                          className="w-full py-1.5 rounded-lg bg-red-500 text-white text-xs font-semibold hover:bg-red-600 transition-all">
-                          Delete
-                        </button>
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+        {/* ─────────── MY ORDERS TAB ───────────────────────── */}
+        {activeTab === 'myorders' && (
+          <MyOrdersTab
+            purchases={adminPurchases}
+            onAdd={handleAddPurchase}
+            onDelete={handleDeletePurchase}
+            isDark={isDark}
+            T={T}
+          />
         )}
 
         {/* ─────────── ANALYTICS TAB ─────────────────────── */}
         {activeTab === 'analytics' && (
-          <div className="space-y-4">
-            <div>
-              <h1 className="text-xl font-bold" style={{ color: T.text }}>Analytics</h1>
-              <p className="text-xs sm:text-sm mt-0.5" style={{ color: T.textSub }}>Store performance overview</p>
-            </div>
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-              {[
-                { label: 'Total Orders', value: stats.orders, icon: FiShoppingBag, color: isDark ? 'rgba(59,130,246,0.15)' : 'bg-blue-50', iconColor: '#3b82f6' },
-                { label: 'Revenue', value: `₹${stats.revenue.toFixed(0)}`, icon: FiDollarSign, color: isDark ? 'rgba(16,185,129,0.15)' : 'bg-emerald-50', iconColor: '#10b981' },
-                { label: 'Avg Order', value: stats.orders > 0 ? `₹${(stats.revenue / stats.orders).toFixed(0)}` : '₹0', icon: FiTrendingUp, color: isDark ? 'rgba(139,92,246,0.15)' : 'bg-violet-50', iconColor: '#8b5cf6' },
-                { label: 'Products', value: stats.products, icon: FiPackage, color: isDark ? 'rgba(245,158,11,0.15)' : 'bg-amber-50', iconColor: '#f59e0b' },
-                { label: 'Low Stock', value: stats.lowStock, icon: FiAlertTriangle, color: isDark ? 'rgba(249,115,22,0.15)' : 'bg-orange-50', iconColor: '#f97316' },
-                { label: 'Out of Stock', value: stats.outOfStock, icon: FiAlertCircle, color: isDark ? 'rgba(239,68,68,0.15)' : 'bg-red-50', iconColor: '#ef4444' },
-              ].map((item) => (
-                <div key={item.label} className="rounded-xl border p-4 shadow-sm flex items-center gap-3 sm:gap-4" style={{ background: T.statCard || T.card, borderColor: T.cardBorder }}>
-                  <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={isDark
-                      ? { background: item.color, color: item.iconColor }
-                      : { background: undefined }}
-                  >
-                    <item.icon size={18}
-                      className={isDark ? '' : item.color}
-                      style={isDark ? { color: item.iconColor } : {}} />
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium" style={{ color: T.textSub }}>{item.label}</p>
-                    <p className="text-xl font-bold" style={{ color: T.text }}>{item.value}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Order Status Breakdown */}
-            <div className="rounded-xl border p-5 shadow-sm" style={{ background: T.card, borderColor: T.cardBorder }}>
-              <h2 className="text-sm font-bold mb-4" style={{ color: T.text }}>Order Status Breakdown</h2>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {STATUSES.map((status) => {
-                  const count = orders.filter((o) => o.status === status).length;
-                  const pct = orders.length > 0 ? Math.round((count / orders.length) * 100) : 0;
-                  return (
-                    <div key={status} className="rounded-lg p-4 text-center" style={{ background: T.tagBg }}>
-                      <div className={`w-2 h-2 rounded-full mx-auto mb-2 ${statusDot[status]}`} />
-                      <p className="text-xs font-medium" style={{ color: T.textSub }}>{status}</p>
-                      <p className="text-xl font-bold mt-1" style={{ color: T.text }}>{count}</p>
-                      <p className="text-xs" style={{ color: T.textMuted }}>{pct}%</p>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
+          <AnalyticsTab
+            stats={stats}
+            orders={orders}
+            products={products}
+            adminPurchases={adminPurchases}
+            isDark={isDark}
+            T={T}
+          />
         )}
 
       </main>
@@ -1532,6 +1874,677 @@ export default function AdminDashboard() {
         ))}
       </nav>
 
+    </div>
+  );
+}
+
+
+// ── My Orders Tab (Raw Material Ledger) ──────────────────────
+function MyOrdersTab({ purchases, onAdd, onDelete, isDark, T }) {
+  const [name, setName] = useState('');
+  const [price, setPrice] = useState('');
+  const [error, setError] = useState('');
+
+  const total = purchases.reduce((s, p) => s + (p.price || 0), 0);
+
+  const handleAdd = () => {
+    if (!name.trim()) { setError('Please enter a material name.'); return; }
+    const p = parseFloat(price);
+    if (!price || isNaN(p) || p < 0) { setError('Please enter a valid price.'); return; }
+    setError('');
+    onAdd({ id: `${Date.now()}-${Math.random()}`, name: name.trim(), price: p, date: new Date().toISOString() });
+    setName('');
+    setPrice('');
+  };
+
+  const handleKey = (e) => { if (e.key === 'Enter') handleAdd(); };
+
+  const inputStyle = {
+    background: T.input,
+    border: `1px solid ${T.inputBorder}`,
+    color: T.text,
+    borderRadius: 12,
+    padding: '10px 14px',
+    fontSize: 14,
+    outline: 'none',
+    width: '100%',
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div>
+        <h1 className="text-xl font-bold" style={{ color: T.text }}>My Orders</h1>
+        <p className="text-xs sm:text-sm mt-0.5" style={{ color: T.textSub }}>
+          Raw material purchase ledger — track what you buy for the bakery
+        </p>
+      </div>
+
+      {/* Summary banner */}
+      <motion.div
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="rounded-2xl border p-5 flex items-center gap-4"
+        style={{
+          background: isDark
+            ? 'linear-gradient(135deg,rgba(3,236,252,0.08),rgba(139,92,246,0.08))'
+            : 'linear-gradient(135deg,#eff6ff,#ede9fe)',
+          borderColor: T.cardBorder,
+        }}
+      >
+        <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0"
+          style={{ background: isDark ? 'rgba(3,236,252,0.15)' : 'rgba(124,58,237,0.12)' }}>
+          <FiShoppingCart size={22} style={{ color: T.accent }} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium" style={{ color: T.textSub }}>Total Investment</p>
+          <p className="text-2xl font-bold" style={{ color: T.text }}>₹{total.toFixed(2)}</p>
+          <p className="text-[11px] mt-0.5" style={{ color: T.textMuted }}>{purchases.length} item{purchases.length !== 1 ? 's' : ''} recorded</p>
+        </div>
+        {purchases.length > 0 && (
+          <div className="text-right flex-shrink-0">
+            <p className="text-xs font-medium" style={{ color: T.textSub }}>Avg per item</p>
+            <p className="text-base font-bold" style={{ color: T.accent }}>₹{(total / purchases.length).toFixed(2)}</p>
+          </div>
+        )}
+      </motion.div>
+
+      {/* Add form */}
+      <div className="rounded-2xl border p-5 shadow-sm" style={{ background: T.card, borderColor: T.cardBorder }}>
+        <p className="text-xs font-bold uppercase tracking-wider mb-4" style={{ color: T.textSub }}>
+          Add Raw Material
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3">
+          {/* Name */}
+          <div className="flex-1">
+            <input
+              id="material-name"
+              type="text"
+              placeholder="Material name  (e.g. Flour, Sugar, Butter…)"
+              value={name}
+              onChange={(e) => { setName(e.target.value); setError(''); }}
+              onKeyDown={handleKey}
+              style={inputStyle}
+            />
+          </div>
+          {/* Price */}
+          <div style={{ width: 150 }}>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold" style={{ color: T.textSub }}>₹</span>
+              <input
+                id="material-price"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="0.00"
+                value={price}
+                onChange={(e) => { setPrice(e.target.value); setError(''); }}
+                onKeyDown={handleKey}
+                style={{ ...inputStyle, paddingLeft: 28 }}
+              />
+            </div>
+          </div>
+          {/* Add btn */}
+          <motion.button
+            id="add-material-btn"
+            whileTap={{ scale: 0.96 }}
+            onClick={handleAdd}
+            className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white flex-shrink-0"
+            style={{ background: isDark ? 'linear-gradient(135deg,#03ecfc,#8b5cf6)' : 'linear-gradient(135deg,#7c3aed,#4f46e5)' }}
+          >
+            <FiPlus size={15} />
+            Add Item
+          </motion.button>
+        </div>
+        {error && (
+          <p className="text-xs mt-2 text-red-400 font-medium">{error}</p>
+        )}
+      </div>
+
+      {/* Items list */}
+      {purchases.length === 0 ? (
+        <div className="rounded-2xl border p-12 text-center" style={{ background: T.card, borderColor: T.cardBorder }}>
+          <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
+            style={{ background: T.tagBg }}>
+            <FiShoppingCart size={24} style={{ color: T.textSub }} />
+          </div>
+          <p className="font-semibold mb-1" style={{ color: T.text }}>No materials added yet</p>
+          <p className="text-sm" style={{ color: T.textSub }}>Add your first raw material purchase above.</p>
+        </div>
+      ) : (
+        <div className="rounded-2xl border shadow-sm overflow-hidden" style={{ background: T.card, borderColor: T.cardBorder }}>
+          {/* Table header */}
+          <div className="grid grid-cols-12 px-5 py-3 border-b text-xs font-bold uppercase tracking-wider"
+            style={{ borderColor: T.cardBorder, color: T.textSub, background: isDark ? 'rgba(255,255,255,0.03)' : '#f9fafb' }}>
+            <div className="col-span-6">Material Name</div>
+            <div className="col-span-3 text-right">Price</div>
+            <div className="col-span-2 text-right hidden sm:block">Date</div>
+            <div className="col-span-1" />
+          </div>
+
+          {/* Rows */}
+          <div className="divide-y" style={{ borderColor: isDark ? 'rgba(255,255,255,0.06)' : '#f3f4f6' }}>
+            <AnimatePresence initial={false}>
+              {purchases.map((item, idx) => (
+                <motion.div
+                  key={item.id}
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="grid grid-cols-12 px-5 py-3.5 items-center"
+                  style={{ borderColor: T.cardBorder }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = T.rowHover}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  {/* Name */}
+                  <div className="col-span-6 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 text-xs font-bold"
+                      style={{ background: T.tagBg, color: T.textSub }}>
+                      {idx + 1}
+                    </div>
+                    <span className="text-sm font-semibold truncate" style={{ color: T.text }}>{item.name}</span>
+                  </div>
+                  {/* Price */}
+                  <div className="col-span-3 text-right">
+                    <span className="text-sm font-bold" style={{ color: '#10b981' }}>₹{item.price.toFixed(2)}</span>
+                  </div>
+                  {/* Date */}
+                  <div className="col-span-2 text-right hidden sm:block">
+                    <span className="text-xs" style={{ color: T.textSub }}>
+                      {new Date(item.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                    </span>
+                  </div>
+                  {/* Delete */}
+                  <div className="col-span-1 flex justify-end">
+                    <motion.button
+                      whileTap={{ scale: 0.9 }}
+                      onClick={() => onDelete(item.id)}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center transition-all"
+                      style={{ color: T.textSub }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.color = '#ef4444'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = T.textSub; }}
+                    >
+                      <FiTrash size={13} />
+                    </motion.button>
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
+
+          {/* Footer total */}
+          <div className="flex items-center justify-between px-5 py-3.5 border-t"
+            style={{ borderColor: T.cardBorder, background: isDark ? 'rgba(255,255,255,0.03)' : '#f9fafb' }}>
+            <span className="text-xs font-bold uppercase tracking-wider" style={{ color: T.textSub }}>
+              Total ({purchases.length} items)
+            </span>
+            <span className="text-base font-bold" style={{ color: T.text }}>₹{total.toFixed(2)}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Custom Chart Tooltip ──────────────────────────────────────
+function ChartTooltip({ active, payload, label, isDark }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{
+      background: isDark ? '#27272a' : '#ffffff',
+      border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : '#e5e7eb'}`,
+      borderRadius: 14,
+      padding: '10px 16px',
+      boxShadow: '0 8px 30px rgba(0,0,0,0.2)',
+      minWidth: 160,
+    }}>
+      <p style={{ color: isDark ? '#9f9fa9' : '#6b7280', fontSize: 11, fontWeight: 600, marginBottom: 6 }}>{label}</p>
+      {payload.map((p) => (
+        <div key={p.name} className="flex items-center gap-2 mb-1">
+          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: p.fill || p.color }} />
+          <span style={{ color: isDark ? '#fafafa' : '#111827', fontSize: 12, fontWeight: 700 }}>
+            {p.name}: ₹{Math.abs(Number(p.value)).toLocaleString('en-IN')}
+            {p.name === 'Profit / Loss' && Number(p.value) < 0 ? ' (Loss)' : ''}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Analytics Tab ─────────────────────────────────────────────
+function AnalyticsTab({ stats, orders, products, adminPurchases, isDark, T }) {
+  const [monthRange, setMonthRange] = useState('6');
+
+  // ── Month filter helpers ──────────────────────────────────
+  const getMonthKey = (dateStr) => {
+    const d = new Date(dateStr);
+    if (isNaN(d)) return null;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  };
+  const getMonthLabel = (key) => {
+    const [year, month] = key.split('-');
+    return new Date(parseInt(year), parseInt(month) - 1, 1)
+      .toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
+  };
+
+  // Build cutoff date
+  const now = new Date();
+  const cutoff = monthRange !== 'all'
+    ? new Date(now.getFullYear(), now.getMonth() - parseInt(monthRange) + 1, 1)
+    : null;
+
+  const filteredOrders = cutoff ? orders.filter((o) => new Date(o.created_at) >= cutoff) : orders;
+  const filteredPurchases = cutoff ? adminPurchases.filter((p) => new Date(p.date) >= cutoff) : adminPurchases;
+
+  // ── Invest vs Revenue monthly bar chart data ──────────────
+  const monthlyMap = {};
+  filteredOrders.forEach((o) => {
+    const key = getMonthKey(o.created_at);
+    if (!key) return;
+    if (!monthlyMap[key]) monthlyMap[key] = { key, label: getMonthLabel(key), revenue: 0, investment: 0 };
+    monthlyMap[key].revenue += o.total || 0;
+  });
+  filteredPurchases.forEach((p) => {
+    const key = getMonthKey(p.date);
+    if (!key) return;
+    if (!monthlyMap[key]) monthlyMap[key] = { key, label: getMonthLabel(key), revenue: 0, investment: 0 };
+    monthlyMap[key].investment += p.price || 0;
+  });
+  const barData = Object.values(monthlyMap)
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .map((m) => ({
+      ...m,
+      revenue: Math.round(m.revenue),
+      investment: Math.round(m.investment),
+      profit: Math.round(m.revenue - m.investment),
+    }));
+
+  // ── Derived filtered stats ─────────────────────────────────
+  const filtRevenue = filteredOrders.reduce((s, o) => s + (o.total || 0), 0);
+  const filtInvest  = filteredPurchases.reduce((s, p) => s + (p.price || 0), 0);
+  const filtProfit  = filtRevenue - filtInvest;
+  const avgOrderValue = filteredOrders.length > 0 ? filtRevenue / filteredOrders.length : 0;
+
+  // ── Category distribution pie ──────────────────────────────
+  const catColors = ['#8b5cf6', '#06b6d4', '#f97316', '#ec4899', '#10b981'];
+  const categoryData = CATEGORIES
+    .map((cat) => ({ name: cat, value: products.filter((p) => p.category === cat).length }))
+    .filter((d) => d.value > 0);
+
+  // ── User retention ─────────────────────────────────────────
+  const userOrderMap = {};
+  orders.forEach((o) => {
+    const uid = o.user_id || o.guest_name || 'guest';
+    if (!userOrderMap[uid]) userOrderMap[uid] = [];
+    userOrderMap[uid].push(o);
+  });
+  const allUserIds = Object.keys(userOrderMap);
+  const returningUsers = allUserIds.filter((uid) => userOrderMap[uid].length > 1).length;
+  const retentionRate = allUserIds.length > 0 ? Math.round((returningUsers / allUserIds.length) * 100) : 0;
+  const retentionPieData = [
+    { name: 'Returning', value: returningUsers },
+    { name: 'New', value: allUserIds.length - returningUsers },
+  ].filter((d) => d.value > 0);
+  const retentionColors = ['#10b981', '#6366f1'];
+
+  const topCustomers = allUserIds
+    .map((uid) => {
+      const uOrders = userOrderMap[uid];
+      const name = uOrders[0]?.guest_name || 'Registered User';
+      const totalSpent = uOrders.reduce((s, o) => s + (o.total || 0), 0);
+      return { uid, name, orderCount: uOrders.length, totalSpent };
+    })
+    .sort((a, b) => b.orderCount - a.orderCount).slice(0, 5);
+
+  // ── Favourite products ─────────────────────────────────────
+  const productFrequency = {};
+  orders.forEach((order) => {
+    (Array.isArray(order.items) ? order.items : []).forEach((item) => {
+      const id = item.id || item.product_id || item.name;
+      if (!productFrequency[id])
+        productFrequency[id] = { name: item.name || 'Unknown', count: 0, revenue: 0 };
+      const qty = item.qty || item.quantity || 1;
+      productFrequency[id].count += qty;
+      productFrequency[id].revenue += (item.price || 0) * qty;
+    });
+  });
+  const favProducts = Object.values(productFrequency).sort((a, b) => b.count - a.count).slice(0, 6);
+
+  // ── Range filter pill style ────────────────────────────────
+  const rangePillStyle = (val) => ({
+    padding: '6px 14px',
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: 'pointer',
+    border: `1px solid ${T.cardBorder}`,
+    background: monthRange === val
+      ? (isDark ? 'linear-gradient(135deg,#03ecfc,#8b5cf6)' : 'linear-gradient(135deg,#7c3aed,#4f46e5)')
+      : T.tagBg,
+    color: monthRange === val ? '#fff' : T.textSub,
+    transition: 'all 0.2s',
+  });
+
+  return (
+    <div className="space-y-5">
+      {/* ── Header + Month Filter ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex-1">
+          <h1 className="text-xl font-bold" style={{ color: T.text }}>Analytics</h1>
+          <p className="text-xs sm:text-sm mt-0.5" style={{ color: T.textSub }}>Store performance overview</p>
+        </div>
+        {/* Month range pills */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <FiCalendar size={13} style={{ color: T.textSub }} />
+          {[
+            { label: '3 Months', val: '3' },
+            { label: '6 Months', val: '6' },
+            { label: '12 Months', val: '12' },
+            { label: 'All Time', val: 'all' },
+          ].map(({ label, val }) => (
+            <button key={val} onClick={() => setMonthRange(val)} style={rangePillStyle(val)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Key Metrics ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'Orders', value: filteredOrders.length, icon: FiShoppingBag, iconColor: '#3b82f6', bg: 'rgba(59,130,246,0.15)' },
+          { label: 'Revenue', value: `₹${filtRevenue.toFixed(0)}`, icon: FiDollarSign, iconColor: '#10b981', bg: 'rgba(16,185,129,0.15)' },
+          { label: 'Investment', value: `₹${filtInvest.toFixed(0)}`, icon: FiShoppingCart, iconColor: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
+          {
+            label: filtProfit >= 0 ? 'Profit' : 'Loss',
+            value: `₹${Math.abs(filtProfit).toFixed(0)}`,
+            icon: FiTrendingUp,
+            iconColor: filtProfit >= 0 ? '#10b981' : '#ef4444',
+            bg: filtProfit >= 0 ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+          },
+        ].map((item) => (
+          <motion.div
+            key={item.label}
+            whileHover={{ scale: 1.02 }}
+            className="rounded-2xl border p-4 shadow-sm flex items-center gap-3"
+            style={{ background: T.statCard || T.card, borderColor: T.cardBorder }}
+          >
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ background: item.bg }}>
+              <item.icon size={17} style={{ color: item.iconColor }} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-medium" style={{ color: T.textSub }}>{item.label}</p>
+              <p className="text-lg font-bold truncate" style={{ color: item.label === 'Loss' ? '#ef4444' : T.text }}>{item.value}</p>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+
+      {/* ── Investment vs Revenue vs Profit Bar Chart ── */}
+      <div className="rounded-2xl border p-5 shadow-sm" style={{ background: T.card, borderColor: T.cardBorder }}>
+        <div className="flex items-center gap-2 mb-5">
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+            style={{ background: isDark ? 'rgba(3,236,252,0.1)' : '#eff6ff' }}>
+            <FiBarChart2 size={14} style={{ color: isDark ? '#03ecfc' : '#3b82f6' }} />
+          </div>
+          <h2 className="text-sm font-bold" style={{ color: T.text }}>Investment vs Revenue vs Profit / Loss</h2>
+          <span className="ml-auto text-[11px] px-2 py-0.5 rounded-full font-medium"
+            style={{ background: T.tagBg, color: T.textSub }}>Month-wise</span>
+        </div>
+
+        {barData.length > 0 ? (
+          <>
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={barData} barGap={4} barCategoryGap="28%">
+                <CartesianGrid vertical={false} stroke={isDark ? 'rgba(255,255,255,0.06)' : '#f3f4f6'} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fill: T.textSub, fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fill: T.textSub, fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(v) => v >= 1000 ? `₹${(v/1000).toFixed(0)}k` : `₹${v}`}
+                />
+                <Tooltip content={(props) => <ChartTooltip {...props} isDark={isDark} />} />
+                <ReferenceLine y={0} stroke={isDark ? 'rgba(255,255,255,0.15)' : '#e5e7eb'} />
+                <Bar dataKey="investment" name="Investment" fill="#f59e0b" radius={[6, 6, 0, 0]} maxBarSize={32} />
+                <Bar dataKey="revenue" name="Revenue" fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={32} />
+                <Bar dataKey="profit" name="Profit / Loss" radius={[6, 6, 0, 0]} maxBarSize={32}>
+                  {barData.map((entry, index) => (
+                    <Cell key={index} fill={entry.profit >= 0 ? '#6366f1' : '#ef4444'} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+
+            {/* Legend */}
+            <div className="flex flex-wrap items-center gap-4 mt-3 justify-center">
+              {[
+                { label: 'Investment', color: '#f59e0b' },
+                { label: 'Revenue', color: '#10b981' },
+                { label: 'Profit', color: '#6366f1' },
+                { label: 'Loss', color: '#ef4444' },
+              ].map((l) => (
+                <div key={l.label} className="flex items-center gap-1.5">
+                  <div className="w-2.5 h-2.5 rounded-full" style={{ background: l.color }} />
+                  <span className="text-[11px] font-medium" style={{ color: T.textSub }}>{l.label}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Monthly summary rows */}
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {barData.map((m) => (
+                <div key={m.key} className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
+                  style={{ background: T.tagBg }}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold" style={{ color: T.text }}>{m.label}</p>
+                    <p className="text-[10px]" style={{ color: T.textSub }}>
+                      Rev ₹{m.revenue.toLocaleString('en-IN')} · Inv ₹{m.investment.toLocaleString('en-IN')}
+                    </p>
+                  </div>
+                  <span className="text-xs font-bold flex-shrink-0" style={{ color: m.profit >= 0 ? '#10b981' : '#ef4444' }}>
+                    {m.profit >= 0 ? '+' : ''}₹{m.profit.toLocaleString('en-IN')}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-14 gap-3" style={{ color: T.textMuted }}>
+            <FiBarChart2 size={32} />
+            <p className="text-sm text-center">
+              No data for this period.<br />Add purchases in <strong>My Orders</strong> and wait for customer orders.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* ── Category Pie + User Retention row ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        {/* Category Distribution Pie */}
+        <div className="rounded-2xl border p-5 shadow-sm" style={{ background: T.card, borderColor: T.cardBorder }}>
+          <div className="flex items-center gap-2 mb-4">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+              style={{ background: isDark ? 'rgba(139,92,246,0.15)' : '#ede9fe' }}>
+              <FiGrid size={14} style={{ color: '#8b5cf6' }} />
+            </div>
+            <h2 className="text-sm font-bold" style={{ color: T.text }}>Products by Category</h2>
+          </div>
+          {categoryData.length > 0 ? (
+            <>
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Pie data={categoryData} cx="50%" cy="50%" innerRadius={50} outerRadius={85}
+                    paddingAngle={4} dataKey="value" strokeWidth={0}>
+                    {categoryData.map((entry, i) => (
+                      <Cell key={entry.name} fill={catColors[i % catColors.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      return (
+                        <div style={{ background: isDark ? '#27272a' : '#fff', border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : '#e5e7eb'}`, borderRadius: 12, padding: '8px 14px' }}>
+                          <p style={{ color: isDark ? '#fafafa' : '#111827', fontWeight: 700, fontSize: 13 }}>{payload[0].name}</p>
+                          <p style={{ color: isDark ? '#9f9fa9' : '#6b7280', fontSize: 12 }}>{payload[0].value} products</p>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Legend iconType="circle" iconSize={8}
+                    formatter={(v) => <span style={{ color: T.textSub, fontSize: 11 }}>{v}</span>} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="grid grid-cols-2 gap-2 mt-1">
+                {categoryData.map((d, i) => (
+                  <div key={d.name} className="flex items-center justify-between px-3 py-2 rounded-xl" style={{ background: T.tagBg }}>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full" style={{ background: catColors[i % catColors.length] }} />
+                      <span className="text-xs font-medium" style={{ color: T.textSub }}>{d.name}</span>
+                    </div>
+                    <span className="text-xs font-bold" style={{ color: T.text }}>{d.value}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center justify-center h-48" style={{ color: T.textMuted }}>
+              <p className="text-sm">No product data yet</p>
+            </div>
+          )}
+        </div>
+
+        {/* User Retention */}
+        <div className="rounded-2xl border p-5 shadow-sm" style={{ background: T.card, borderColor: T.cardBorder }}>
+          <div className="flex items-center gap-2 mb-4">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+              style={{ background: isDark ? 'rgba(16,185,129,0.15)' : '#ecfdf5' }}>
+              <FiUsers size={14} style={{ color: '#10b981' }} />
+            </div>
+            <h2 className="text-sm font-bold" style={{ color: T.text }}>User Retention</h2>
+          </div>
+          {/* Mini KPIs */}
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            {[
+              { label: 'Total', value: allUserIds.length, color: '#6366f1', icon: FiUsers },
+              { label: 'Returning', value: returningUsers, color: '#10b981', icon: FiRepeat },
+              { label: 'Rate', value: `${retentionRate}%`, color: '#f59e0b', icon: FiAward },
+            ].map((m) => (
+              <div key={m.label} className="rounded-xl p-3 text-center" style={{ background: T.tagBg }}>
+                <m.icon size={14} style={{ color: m.color, margin: '0 auto 4px' }} />
+                <p className="text-base font-bold" style={{ color: T.text }}>{m.value}</p>
+                <p className="text-[10px]" style={{ color: T.textSub }}>{m.label}</p>
+              </div>
+            ))}
+          </div>
+          {/* Pie */}
+          {retentionPieData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={170}>
+              <PieChart>
+                <Pie data={retentionPieData} cx="50%" cy="50%" innerRadius={40} outerRadius={70}
+                  paddingAngle={4} dataKey="value" strokeWidth={0}>
+                  {retentionPieData.map((entry, i) => <Cell key={entry.name} fill={retentionColors[i]} />)}
+                </Pie>
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    return (
+                      <div style={{ background: isDark ? '#27272a' : '#fff', border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : '#e5e7eb'}`, borderRadius: 12, padding: '8px 14px' }}>
+                        <p style={{ color: isDark ? '#fafafa' : '#111827', fontWeight: 700, fontSize: 13 }}>{payload[0].name}</p>
+                        <p style={{ color: isDark ? '#9f9fa9' : '#6b7280', fontSize: 12 }}>{payload[0].value} customers</p>
+                      </div>
+                    );
+                  }}
+                />
+                <Legend iconType="circle" iconSize={8}
+                  formatter={(v) => <span style={{ color: T.textSub, fontSize: 11 }}>{v}</span>} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-32" style={{ color: T.textMuted }}>
+              <p className="text-sm">No customer data yet</p>
+            </div>
+          )}
+          {/* Top customers */}
+          {topCustomers.length > 0 && (
+            <div className="mt-3 space-y-1.5">
+              {topCustomers.slice(0, 3).map((cust, idx) => (
+                <div key={cust.uid} className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: T.tagBg }}>
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
+                    style={{ background: idx === 0 ? '#f59e0b' : idx === 1 ? '#94a3b8' : '#cd7f32', color: '#fff' }}>
+                    {idx + 1}
+                  </div>
+                  <p className="text-xs font-semibold flex-1 truncate" style={{ color: T.text }}>{cust.name}</p>
+                  <p className="text-xs font-bold" style={{ color: T.accent }}>{cust.orderCount} orders</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Favourite Products ── */}
+      <div className="rounded-2xl border p-5 shadow-sm" style={{ background: T.card, borderColor: T.cardBorder }}>
+        <div className="flex items-center gap-2 mb-5">
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+            style={{ background: isDark ? 'rgba(236,72,153,0.15)' : '#fdf2f8' }}>
+            <FiHeart size={14} style={{ color: '#ec4899' }} />
+          </div>
+          <h2 className="text-sm font-bold" style={{ color: T.text }}>Customer Favourite Products</h2>
+          <span className="ml-auto text-xs px-2 py-0.5 rounded-full font-medium"
+            style={{ background: isDark ? 'rgba(236,72,153,0.15)' : '#fce7f3', color: '#ec4899' }}>
+            By Order Volume
+          </span>
+        </div>
+        {favProducts.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {favProducts.map((prod, idx) => {
+              const maxCount = favProducts[0].count;
+              const barPct = maxCount > 0 ? (prod.count / maxCount) * 100 : 0;
+              const rankColors = ['#f59e0b', '#94a3b8', '#cd7f32', '#8b5cf6', '#06b6d4', '#ec4899'];
+              return (
+                <motion.div key={prod.name} whileHover={{ scale: 1.02, y: -2 }}
+                  className="rounded-xl border p-4" style={{ background: T.tagBg, borderColor: T.cardBorder }}>
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0 text-white"
+                      style={{ background: `linear-gradient(135deg,${rankColors[idx]},${rankColors[idx]}aa)` }}>
+                      #{idx + 1}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold truncate" style={{ color: T.text }}>{prod.name}</p>
+                      <p className="text-[10px] mt-0.5" style={{ color: T.textSub }}>₹{prod.revenue.toFixed(0)} revenue</p>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-[10px] font-medium" style={{ color: T.textSub }}>Units Sold</span>
+                      <span className="text-xs font-bold" style={{ color: T.text }}>{prod.count}</span>
+                    </div>
+                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: isDark ? 'rgba(255,255,255,0.08)' : '#e5e7eb' }}>
+                      <motion.div initial={{ width: 0 }} animate={{ width: `${barPct}%` }}
+                        transition={{ duration: 0.8, delay: idx * 0.1 }} className="h-full rounded-full"
+                        style={{ background: `linear-gradient(90deg,${rankColors[idx]},${rankColors[idx]}aa)` }} />
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-10 gap-2" style={{ color: T.textMuted }}>
+            <FiHeart size={28} />
+            <p className="text-sm">No order data yet — favourite products will appear here</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

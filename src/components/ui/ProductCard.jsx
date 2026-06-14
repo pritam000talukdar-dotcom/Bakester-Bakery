@@ -145,9 +145,9 @@ export default function ProductCard({ product, size = 'md', onWishlistToggle, is
                 Serves ~{servings} {servings === 1 ? 'person' : 'people'}
               </p>
             )}
-            {product.quantity > 0 && !outOfStock && (
+            {product.displayQuantity > 0 && !outOfStock && (
               <p className="text-[10px] sm:text-[11px] text-amber-600 font-medium mt-0.5">
-                {product.quantity} left
+                {product.displayQuantity} left
               </p>
             )}
           </div>

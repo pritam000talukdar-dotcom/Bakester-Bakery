@@ -16,18 +16,34 @@ export const ProductsProvider = ({ children }) => {
   );
   const productsRef = useRef(cachedProducts || []);
 
+  // The stock buffer constant — users always see 5 fewer units than the DB holds.
+  // When actual DB quantity drops to ≤ STOCK_BUFFER the product is treated as
+  // out-of-stock for customers even if in_stock is still true in the DB.
+  const STOCK_BUFFER = 5;
+
   // Normalise a DB row into the shape the UI expects
-  const normalise = useCallback((p) => ({
-    ...p,
-    image: p.image_url || '',
-    name: p.name || 'Unnamed Product',
-    description: p.description || '',
-    price: p.price ?? 0,
-    rating: p.rating ?? null,
-    badge: p.badge?.trim() || null,
-    in_stock: p.in_stock !== false,
-    quantity: p.quantity ?? 0,
-  }), []);
+  const normalise = useCallback((p) => {
+    const actualQty = p.quantity ?? 0;
+    // Users see actual qty minus the buffer (never negative)
+    const displayQuantity = Math.max(0, actualQty - STOCK_BUFFER);
+    // A product is considered out-of-stock for users when actual qty <= buffer
+    const userInStock = p.in_stock !== false && actualQty > STOCK_BUFFER;
+    return {
+      ...p,
+      image: p.image_url || '',
+      name: p.name || 'Unnamed Product',
+      description: p.description || '',
+      price: p.price ?? 0,
+      rating: p.rating ?? null,
+      badge: p.badge?.trim() || null,
+      // in_stock for the user-facing view (respects buffer)
+      in_stock: userInStock,
+      // Raw DB quantity (admin always sees this in the dashboard)
+      quantity: actualQty,
+      // What customers see on product cards
+      displayQuantity,
+    };
+  }, []);
 
   const fetchProducts = useCallback(async (force = false) => {
     if (!isSupabaseConfigured) return;

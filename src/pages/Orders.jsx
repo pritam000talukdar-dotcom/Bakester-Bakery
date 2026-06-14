@@ -2,15 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import AnimatedSection from '../components/ui/AnimatedSection';
-import { FiPackage, FiTruck, FiCheckCircle, FiClock, FiChevronDown } from 'react-icons/fi';
+import { FiPackage, FiTruck, FiCheckCircle, FiClock, FiChevronDown, FiAlertCircle, FiMessageSquare } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 
 const statusConfig = {
-  Delivered: { color: 'text-green-700 bg-green-50', icon: FiCheckCircle, iconColor: 'text-green-600' },
-  Processing: { color: 'text-amber-700 bg-amber-50', icon: FiClock, iconColor: 'text-amber-600' },
-  Shipped: { color: 'text-blue-700 bg-blue-50', icon: FiTruck, iconColor: 'text-blue-600' },
-  Cancelled: { color: 'text-red-700 bg-red-50', icon: FiPackage, iconColor: 'text-red-600' },
+  Delivered:  { color: 'text-green-700 bg-green-50',  icon: FiCheckCircle, iconColor: 'text-green-600' },
+  Processing: { color: 'text-amber-700 bg-amber-50',  icon: FiClock,       iconColor: 'text-amber-600' },
+  Shipped:    { color: 'text-blue-700 bg-blue-50',    icon: FiTruck,       iconColor: 'text-blue-600'  },
+  Cancelled:  { color: 'text-red-700 bg-red-50',     icon: FiAlertCircle, iconColor: 'text-red-600'   },
 };
 
 const orderSteps = [
@@ -53,6 +53,17 @@ function OrderCard({ order }) {
           </div>
         </div>
         <div className="flex items-center gap-4">
+          {/* Ready for Pickup badge — shown prominently when admin toggles it */}
+          {order.ready_for_pickup && (
+            <motion.span
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="text-xs px-3 py-1.5 rounded-full font-bold flex items-center gap-1.5 bg-emerald-500 text-white shadow-md"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse inline-block" />
+              🎉 Ready for Pickup!
+            </motion.span>
+          )}
           <span className={`text-xs px-3 py-1.5 rounded-full font-semibold flex items-center gap-1.5 ${cfg.color}`}>
             <StatusIcon size={11} className={cfg.iconColor} />
             {order.status}
@@ -117,6 +128,28 @@ function OrderCard({ order }) {
                       </p>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Special Notes */}
+              {order.special_notes && (
+                <div className="flex items-start gap-2.5 p-3.5 bg-amber-50 border border-amber-200 rounded-xl">
+                  <FiMessageSquare size={14} className="text-amber-600 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-amber-600 mb-0.5">Special Notes</p>
+                    <p className="text-sm text-amber-900 font-medium">{order.special_notes}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Cancelled by admin note */}
+              {order.cancelled_by_admin && (
+                <div className="flex items-start gap-2.5 p-3.5 bg-red-50 border border-red-200 rounded-xl">
+                  <FiAlertCircle size={14} className="text-red-500 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-red-500 mb-0.5">Order Cancelled</p>
+                    <p className="text-xs text-red-700">This order was cancelled by the bakery. Please contact us for assistance.</p>
+                  </div>
                 </div>
               )}
 

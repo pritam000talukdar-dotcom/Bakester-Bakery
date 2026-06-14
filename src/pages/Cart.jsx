@@ -32,7 +32,7 @@ function CheckoutModal({ isOpen, onClose, cartItems, cartTotal, onSuccess }) {
   const orderTotal = cartTotal + shipping + tax;
 
   const validate = () => {
-    if (!form.name.trim())    return 'Please enter your name.';
+    if (!form.name.trim()) return 'Please enter your name.';
     if (!form.address.trim()) return 'Please enter your delivery address.';
     return null;
   };
@@ -50,24 +50,25 @@ function CheckoutModal({ isOpen, onClose, cartItems, cartTotal, onSuccess }) {
 
       const num = generateOrderNumber();
       const orderItems = cartItems.map((item) => ({
-        id:       item.id,
-        name:     item.name,
-        price:    item.price,
-        qty:      item.quantity,
-        image:    item.image || item.image_url || '',
+        id: item.id,
+        name: item.name,
+        price: item.price,
+        qty: item.quantity,
+        image: item.image || item.image_url || '',
         category: item.category || '',
       }));
 
       const { error: insertErr } = await supabase.from('orders').insert({
-        user_id:      user?.id || null,
+        user_id: user?.id || null,
         order_number: num,
-        items:        orderItems,
-        total:        orderTotal,
-        address:      form.address,
-        status:       'Processing',
-        guest_name:   user ? null : form.name,
-        guest_email:  user ? null : form.email,
-        guest_phone:  user ? null : form.phone,
+        items: orderItems,
+        total: orderTotal,
+        address: form.address,
+        status: 'Processing',
+        special_notes: form.notes || null,
+        guest_name: user ? null : form.name,
+        guest_email: user ? null : form.email,
+        guest_phone: user ? null : form.phone,
       });
 
       if (insertErr) throw insertErr;
@@ -118,14 +119,14 @@ function CheckoutModal({ isOpen, onClose, cartItems, cartTotal, onSuccess }) {
             {/* Order mini-summary */}
             <div className="px-6 py-4 bg-cream-50 border-b border-cream-100">
               <div className="flex items-center justify-between text-sm font-semibold text-chocolate mb-1">
-              <span>{cartItems.length} item{cartItems.length !== 1 ? 's' : ''}</span>
-              <span className="font-serif text-base">₹{orderTotal.toFixed(0)}</span>
-            </div>
-            <div className="flex items-center gap-4 text-xs text-chocolate/50">
-              <span>Subtotal: ₹{cartTotal.toFixed(0)}</span>
-              <span>Shipping: {shipping === 0 ? 'Free' : `₹${shipping.toFixed(0)}`}</span>
-              <span>GST: ₹{tax.toFixed(0)}</span>
-            </div>
+                <span>{cartItems.length} item{cartItems.length !== 1 ? 's' : ''}</span>
+                <span className="font-serif text-base">₹{orderTotal.toFixed(0)}</span>
+              </div>
+              <div className="flex items-center gap-4 text-xs text-chocolate/50">
+                <span>Subtotal: ₹{cartTotal.toFixed(0)}</span>
+                <span>Shipping: {shipping === 0 ? 'Free' : `₹${shipping.toFixed(0)}`}</span>
+                <span>GST: ₹{tax.toFixed(0)}</span>
+              </div>
             </div>
 
             {/* Form */}
@@ -158,7 +159,7 @@ function CheckoutModal({ isOpen, onClose, cartItems, cartTotal, onSuccess }) {
                 </div>
               </div>
 
-              <div>
+              {/* <div>
                 <label className="block text-xs font-semibold text-chocolate/60 mb-1.5">
                   <FiMail size={10} className="inline mr-1" />Email
                 </label>
@@ -169,7 +170,7 @@ function CheckoutModal({ isOpen, onClose, cartItems, cartTotal, onSuccess }) {
                   placeholder="for order confirmation"
                   className="w-full px-3 py-2.5 rounded-xl border border-cream-200 focus:border-rose-bakery text-sm outline-none text-chocolate bg-white"
                 />
-              </div>
+              </div> */}
 
               <div>
                 <label className="block text-xs font-semibold text-chocolate/60 mb-1.5">
@@ -247,7 +248,7 @@ function CheckoutModal({ isOpen, onClose, cartItems, cartTotal, onSuccess }) {
               <p className="font-mono text-lg font-bold text-rose-bakery">{orderNumber}</p>
             </div>
             <p className="text-sm text-chocolate/60 mb-8">
-              We've received your order and will start preparing it shortly. 
+              We've received your order and will start preparing it shortly.
               {form.email && ' A confirmation will be sent to your email.'}
             </p>
             <div className="flex flex-col sm:flex-row gap-3">

@@ -134,9 +134,9 @@ function CakeModal({ product, onClose }) {
               <span className="text-xs bg-red-50 text-red-600 border border-red-200 px-3 py-1 rounded-full font-semibold">
                 Out of Stock
               </span>
-            ) : product.quantity > 0 ? (
+            ) : product.displayQuantity > 0 ? (
               <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1 rounded-full font-semibold">
-                {product.quantity} left
+                {product.displayQuantity} left
               </span>
             ) : null}
           </div>
