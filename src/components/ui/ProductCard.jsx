@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { FiShoppingCart } from 'react-icons/fi';
+import { FiShoppingCart, FiZap } from 'react-icons/fi';
 import { HiStar, HiHeart, HiOutlineHeart } from 'react-icons/hi2';
+import { useNavigate } from 'react-router-dom';
 import { useCart } from '../../context/CartContext';
 
 // Estimate servings from weight (approx 85g per serving)
@@ -15,6 +16,7 @@ function calcServings(product) {
 
 export default function ProductCard({ product, size = 'md', onWishlistToggle, isWishlisted = false }) {
   const { addItem } = useCart();
+  const navigate = useNavigate();
   const [liked,     setLiked]     = useState(isWishlisted);
   const [added,     setAdded]     = useState(false);
 
@@ -31,6 +33,13 @@ export default function ProductCard({ product, size = 'md', onWishlistToggle, is
     addItem({ ...product, image: imageSrc });
     setAdded(true);
     setTimeout(() => setAdded(false), 1600);
+  };
+
+  const handleBuyNow = (e) => {
+    e.preventDefault();
+    if (outOfStock) return;
+    addItem({ ...product, image: imageSrc });
+    navigate('/cart');
   };
 
   const handleLike = (e) => {
@@ -135,8 +144,9 @@ export default function ProductCard({ product, size = 'md', onWishlistToggle, is
         )}
 
         {/* Price + CTA */}
-        <div className="flex items-center justify-between mt-auto pt-2">
-          <div>
+        <div className="mt-auto pt-2">
+          {/* Price row */}
+          <div className="mb-2">
             <span className="font-serif text-lg sm:text-xl font-bold text-chocolate">
               <span className="text-base sm:text-lg">₹</span>{product.price?.toFixed(0)}
             </span>
@@ -152,21 +162,37 @@ export default function ProductCard({ product, size = 'md', onWishlistToggle, is
             )}
           </div>
 
-          <button
-            onClick={handleAdd}
-            disabled={outOfStock}
-            className={`flex items-center gap-1 sm:gap-1.5 text-[11px] sm:text-xs font-semibold px-3 sm:px-4 py-2 rounded-full transition-all duration-200 active:scale-95 flex-shrink-0 ${
-              outOfStock
-                ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
-                : added
-                ? 'bg-emerald-500 text-white'
-                : 'bg-rose-bakery text-white hover:bg-rose-dark'
-            }`}
-            aria-label={outOfStock ? `${product.name} is out of stock` : `Add ${product.name} to cart`}
-          >
-            {!added && <FiShoppingCart size={12} />}
-            <span>{outOfStock ? 'Unavailable' : added ? '✓ Added!' : 'Add'}</span>
-          </button>
+          {/* Action buttons row */}
+          <div className="flex items-center gap-2">
+            {/* Add to Cart */}
+            <button
+              onClick={handleAdd}
+              disabled={outOfStock}
+              className={`flex items-center gap-1 sm:gap-1.5 text-[11px] sm:text-xs font-semibold px-3 sm:px-3.5 py-2 rounded-full transition-all duration-200 active:scale-95 flex-shrink-0 ${
+                outOfStock
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                  : added
+                  ? 'bg-emerald-500 text-white'
+                  : 'bg-rose-bakery text-white hover:bg-rose-dark'
+              }`}
+              aria-label={outOfStock ? `${product.name} is out of stock` : `Add ${product.name} to cart`}
+            >
+              {!added && <FiShoppingCart size={12} />}
+              <span>{outOfStock ? 'Unavailable' : added ? '✓ Added!' : 'Add'}</span>
+            </button>
+
+            {/* Buy Now */}
+            {!outOfStock && (
+              <button
+                onClick={handleBuyNow}
+                className="flex items-center gap-1 sm:gap-1.5 text-[11px] sm:text-xs font-semibold px-3 sm:px-3.5 py-2 rounded-full border-2 border-rose-bakery text-rose-bakery hover:bg-rose-bakery hover:text-white transition-all duration-200 active:scale-95 flex-shrink-0"
+                aria-label={`Buy ${product.name} now`}
+              >
+                <FiZap size={11} />
+                <span>Buy Now</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </motion.div>

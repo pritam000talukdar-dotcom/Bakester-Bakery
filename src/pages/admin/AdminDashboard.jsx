@@ -48,6 +48,13 @@ function buildNotification(message, entityId, type = 'out_of_stock') {
   };
 }
 
+const playNotificationSound = () => {
+  try {
+    const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+    audio.play().catch(e => console.warn('Audio play blocked by browser:', e));
+  } catch (e) {}
+};
+
 // ── Constants ────────────────────────────────────────────────
 const statusColors = {
   Processing: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -165,7 +172,18 @@ function ProductModal({ product, onClose, onSave, isDark, T }) {
       const { error: upErr } = await supabase.storage.from('product-images').upload(fileName, file, { contentType: file.type });
       if (upErr) throw upErr;
       const { data } = supabase.storage.from('product-images').getPublicUrl(fileName);
-      setForm((f) => ({ ...f, image_url: data.publicUrl }));
+      const publicUrl = data.publicUrl;
+
+      // ── Permanent fix: immediately save image_url to DB for existing products ──
+      // This ensures the image is always linked even if the form save fails later.
+      if (product?.id) {
+        await supabase
+          .from('products')
+          .update({ image_url: publicUrl })
+          .eq('id', product.id);
+      }
+
+      setForm((f) => ({ ...f, image_url: publicUrl }));
     } catch (err) {
       alert('Image upload failed: ' + err.message);
     } finally {
@@ -178,7 +196,16 @@ function ProductModal({ product, onClose, onSave, isDark, T }) {
     if (!validate()) return;
     setSaving(true);
     try {
-      await onSave({ ...form, price: Number(form.price), rating: Number(form.rating), quantity: Number(form.quantity) });
+      await onSave({
+        ...form,
+        price:    Number(form.price)    || 0,
+        rating:   Number(form.rating)   || null,
+        quantity: Number(form.quantity) || 0,
+        // weight_g is an integer column — send null instead of empty string
+        weight_g: form.weight_g !== '' && form.weight_g !== null ? Number(form.weight_g) : null,
+        // badge — trim and send null if empty so DB stays clean
+        badge:    form.badge?.trim() || null,
+      });
       onClose();
     } catch (err) {
       alert('Save failed: ' + err.message);
@@ -805,9 +832,37 @@ export default function AdminDashboard() {
           addNotification(updated.name, updated.id, 'out_of_stock');
         }
 
-        // Update local products state
         setProducts((prev) => prev.map((p) => p.id === updated.id ? updated : p));
         prevQtyRef.current[updated.id] = newQty;
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [addNotification, addToast]);
+
+  // ── Realtime subscription: watch for orders (new orders & user cancellations) ─────
+  useEffect(() => {
+    const channel = supabase
+      .channel('admin-orders-watcher')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, (payload) => {
+        const newOrder = payload.new;
+        addNotification(`New order received: ${newOrder.order_number}`, newOrder.id, 'new_order');
+        addToast(`🛍️ New Order: ${newOrder.order_number}`, 'success');
+        playNotificationSound();
+        setOrders((prev) => [newOrder, ...prev]);
+        setStats((s) => ({ ...s, orders: s.orders + 1, revenue: s.revenue + (newOrder.total || 0) }));
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, (payload) => {
+        const updated = payload.new;
+        const prev = payload.old;
+        
+        if (updated.status === 'Cancelled' && prev.status !== 'Cancelled') {
+          addNotification(`Order ${updated.order_number} was cancelled by the customer`, updated.id, 'cancelled');
+          addToast(`❌ Order Cancelled: ${updated.order_number}`, 'error');
+          playNotificationSound();
+        }
+        
+        setOrders((prevOrders) => prevOrders.map(o => o.id === updated.id ? updated : o));
       })
       .subscribe();
 
@@ -986,7 +1041,11 @@ export default function AdminDashboard() {
       o.order_number?.toLowerCase().includes(q) ||
       o.guest_name?.toLowerCase().includes(q) ||
       o.address?.toLowerCase().includes(q);
-    const matchStatus = statusFilter === 'All' || o.status === statusFilter;
+    // 'All' shows only active orders (Processing + Shipped)
+    // Specific filter lets admin see Delivered / Cancelled on demand
+    const matchStatus = statusFilter === 'All'
+      ? (o.status === 'Processing' || o.status === 'Shipped')
+      : o.status === statusFilter;
     return matchSearch && matchStatus;
   });
 
@@ -1789,8 +1848,10 @@ export default function AdminDashboard() {
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
                 className="px-3 py-2 rounded-lg text-sm outline-none cursor-pointer border"
                 style={{ background: T.tagBg, borderColor: T.inputBorder, color: T.text }}>
-                <option value="All">All Statuses</option>
-                {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                <option value="All" style={{ background: T.tagBg, color: T.text }}>All Statuses</option>
+                {STATUSES.map((s) => (
+                  <option key={s} value={s} style={{ background: T.tagBg, color: T.text }}>{s}</option>
+                ))}
               </select>
               <div className="text-xs ml-auto hidden sm:block" style={{ color: T.textMuted }}>
                 {filteredOrders.length} orders · ₹{stats.revenue.toFixed(0)}
@@ -2087,22 +2148,26 @@ function MyOrdersTab({ purchases, onAdd, onDelete, isDark, T }) {
 }
 
 // ── Custom Chart Tooltip ──────────────────────────────────────
-function ChartTooltip({ active, payload, label, isDark }) {
+function ChartTooltip({ active, payload, label, isDark, T }) {
   if (!active || !payload?.length) return null;
+  const bg     = isDark ? '#27272a' : (T?.card || '#f9fafb');
+  const border = isDark ? 'rgba(255,255,255,0.12)' : (T?.cardBorder || '#e5e7eb');
+  const textMain = isDark ? '#fafafa' : (T?.text || '#111827');
+  const textSub  = isDark ? '#9f9fa9' : (T?.textSub || '#6b7280');
   return (
     <div style={{
-      background: isDark ? '#27272a' : '#ffffff',
-      border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : '#e5e7eb'}`,
+      background: bg,
+      border: `1px solid ${border}`,
       borderRadius: 14,
       padding: '10px 16px',
-      boxShadow: '0 8px 30px rgba(0,0,0,0.2)',
+      boxShadow: '0 8px 30px rgba(0,0,0,0.18)',
       minWidth: 160,
     }}>
-      <p style={{ color: isDark ? '#9f9fa9' : '#6b7280', fontSize: 11, fontWeight: 600, marginBottom: 6 }}>{label}</p>
+      <p style={{ color: textSub, fontSize: 11, fontWeight: 600, marginBottom: 6 }}>{label}</p>
       {payload.map((p) => (
         <div key={p.name} className="flex items-center gap-2 mb-1">
           <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: p.fill || p.color }} />
-          <span style={{ color: isDark ? '#fafafa' : '#111827', fontSize: 12, fontWeight: 700 }}>
+          <span style={{ color: textMain, fontSize: 12, fontWeight: 700 }}>
             {p.name}: ₹{Math.abs(Number(p.value)).toLocaleString('en-IN')}
             {p.name === 'Profit / Loss' && Number(p.value) < 0 ? ' (Loss)' : ''}
           </span>
@@ -2311,7 +2376,11 @@ function AnalyticsTab({ stats, orders, products, adminPurchases, isDark, T }) {
                   tickLine={false}
                   tickFormatter={(v) => v >= 1000 ? `₹${(v/1000).toFixed(0)}k` : `₹${v}`}
                 />
-                <Tooltip content={(props) => <ChartTooltip {...props} isDark={isDark} />} />
+                <Tooltip
+                  content={(props) => <ChartTooltip {...props} isDark={isDark} T={T} />}
+                  wrapperStyle={{ outline: 'none' }}
+                  cursor={{ fill: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)' }}
+                />
                 <ReferenceLine y={0} stroke={isDark ? 'rgba(255,255,255,0.15)' : '#e5e7eb'} />
                 <Bar dataKey="investment" name="Investment" fill="#f59e0b" radius={[6, 6, 0, 0]} maxBarSize={32} />
                 <Bar dataKey="revenue" name="Revenue" fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={32} />

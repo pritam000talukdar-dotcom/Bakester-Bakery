@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
 const CartContext = createContext(null);
 
+// ── Reducer ───────────────────────────────────────────────────
 const cartReducer = (state, action) => {
   switch (action.type) {
     case 'ADD_ITEM': {
@@ -15,22 +16,13 @@ const cartReducer = (state, action) => {
           ),
         };
       }
-      return {
-        ...state,
-        items: [...state.items, { ...action.payload, quantity: 1 }],
-      };
+      return { ...state, items: [...state.items, { ...action.payload, quantity: 1 }] };
     }
     case 'REMOVE_ITEM':
-      return {
-        ...state,
-        items: state.items.filter((i) => i.id !== action.payload),
-      };
+      return { ...state, items: state.items.filter((i) => i.id !== action.payload) };
     case 'UPDATE_QUANTITY': {
       if (action.payload.quantity <= 0) {
-        return {
-          ...state,
-          items: state.items.filter((i) => i.id !== action.payload.id),
-        };
+        return { ...state, items: state.items.filter((i) => i.id !== action.payload.id) };
       }
       return {
         ...state,
@@ -49,152 +41,151 @@ const cartReducer = (state, action) => {
 };
 
 const initialState = {
-  items: JSON.parse(localStorage.getItem('bakester_cart') || '[]'),
+  items: (() => {
+    try { return JSON.parse(localStorage.getItem('bakester_cart') || '[]'); }
+    catch { return []; }
+  })(),
 };
 
+// ── Cloud sync helpers ────────────────────────────────────────
+// We use a single UPSERT + one targeted DELETE instead of 3 sequential calls.
+async function syncToCloud(uid, items) {
+  try {
+    if (items.length === 0) {
+      await supabase.from('cart_items').delete().eq('user_id', uid);
+      return;
+    }
+
+    const rows = items.map((item) => ({
+      user_id:      uid,
+      product_id:   String(item.id),
+      quantity:     item.quantity,
+      product_data: { id: item.id, name: item.name, price: item.price, image: item.image, category: item.category },
+      updated_at:   new Date().toISOString(),
+    }));
+
+    // Single upsert for all current items
+    const { error: upsertErr } = await supabase
+      .from('cart_items')
+      .upsert(rows, { onConflict: 'user_id,product_id' });
+    if (upsertErr) throw upsertErr;
+
+    // Remove stale items in one query using NOT IN
+    const activeIds = items.map((i) => String(i.id));
+    await supabase
+      .from('cart_items')
+      .delete()
+      .eq('user_id', uid)
+      .not('product_id', 'in', `(${activeIds.join(',')})`);
+  } catch (err) {
+    console.error('Cart sync error:', err.message);
+  }
+}
+
+async function loadCloudCart(uid) {
+  try {
+    const { data, error } = await supabase
+      .from('cart_items')
+      .select('product_id, quantity, product_data')
+      .eq('user_id', uid);
+    if (error) throw error;
+
+    const cloudItems = (data || []).map((row) => ({
+      ...row.product_data,
+      id:       row.product_id,
+      quantity: row.quantity,
+    }));
+
+    // Merge cloud + local: keep highest quantity per item
+    let localItems = [];
+    try { localItems = JSON.parse(localStorage.getItem('bakester_cart') || '[]'); } catch { /* ignore */ }
+
+    const merged = [...cloudItems];
+    for (const local of localItems) {
+      const existing = merged.find((c) => c.id === String(local.id));
+      if (!existing) merged.push(local);
+      else existing.quantity = Math.max(existing.quantity, local.quantity);
+    }
+    return merged;
+  } catch (err) {
+    console.error('Error loading cloud cart:', err.message);
+    return null;
+  }
+}
+
+// ── Provider ──────────────────────────────────────────────────
 export const CartProvider = ({ children }) => {
   const [state, dispatch] = useReducer(cartReducer, initialState);
-  const [userId, setUserId] = React.useState(null);
-  const syncTimeoutRef = React.useRef(null);
+  const userIdRef    = useRef(null);          // latest uid without causing re-renders
+  const syncTimerRef = useRef(null);
+  const isFirstSync  = useRef(true);          // skip cloud sync on initial mount
 
-  // Listen for auth changes
+  // ── Persist to localStorage immediately on change ─────────
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      const uid = session?.user?.id || null;
-      setUserId(uid);
-      if (uid) loadCloudCart(uid);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      const uid = session?.user?.id || null;
-      setUserId(uid);
-      if (uid) loadCloudCart(uid);
-      else {
-        // On sign out, keep local cart but stop syncing
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  // Load cart from Supabase and merge with local
-  const loadCloudCart = async (uid) => {
-    try {
-      const { data, error } = await supabase
-        .from('cart_items')
-        .select('*')
-        .eq('user_id', uid);
-      if (error) throw error;
-
-      // Build cloud items
-      const cloudItems = (data || []).map((row) => ({
-        ...row.product_data,
-        id: row.product_id,
-        quantity: row.quantity,
-      }));
-
-      // Merge: take max quantity per item from local vs cloud
-      const localItems = JSON.parse(localStorage.getItem('bakester_cart') || '[]');
-      const merged = [...cloudItems];
-      for (const local of localItems) {
-        const existing = merged.find((c) => c.id === local.id);
-        if (!existing) {
-          merged.push(local);
-        } else {
-          existing.quantity = Math.max(existing.quantity, local.quantity);
-        }
-      }
-      dispatch({ type: 'SET_ITEMS', payload: merged });
-    } catch (err) {
-      console.error('Error loading cloud cart:', err.message);
-    }
-  };
-
-  // Persist to localStorage on every change
-  useEffect(() => {
-    localStorage.setItem('bakester_cart', JSON.stringify(state.items));
+    try { localStorage.setItem('bakester_cart', JSON.stringify(state.items)); }
+    catch { /* quota exceeded */ }
   }, [state.items]);
 
-  // Debounce sync to Supabase (500ms after last change)
+  // ── Auth listener: load cloud cart once on sign-in ────────
   useEffect(() => {
-    if (!userId) return;
-    clearTimeout(syncTimeoutRef.current);
-    syncTimeoutRef.current = setTimeout(() => syncToCloud(userId, state.items), 500);
-    return () => clearTimeout(syncTimeoutRef.current);
-  }, [state.items, userId]);
+    let mounted = true;
 
-  const syncToCloud = async (uid, items) => {
-    try {
-      if (items.length === 0) {
-        // Delete all cart items for this user
-        await supabase.from('cart_items').delete().eq('user_id', uid);
-        return;
+    async function bootstrap() {
+      const { data: { session } } = await supabase.auth.getSession();
+      const uid = session?.user?.id || null;
+      userIdRef.current = uid;
+
+      if (uid) {
+        const merged = await loadCloudCart(uid);
+        if (merged && mounted) dispatch({ type: 'SET_ITEMS', payload: merged });
       }
-
-      // Upsert all items
-      const rows = items.map((item) => ({
-        user_id: uid,
-        product_id: String(item.id),
-        quantity: item.quantity,
-        product_data: {
-          id: item.id,
-          name: item.name,
-          price: item.price,
-          image: item.image,
-          category: item.category,
-        },
-        updated_at: new Date().toISOString(),
-      }));
-
-      const { error } = await supabase
-        .from('cart_items')
-        .upsert(rows, { onConflict: 'user_id,product_id' });
-
-      if (error) throw error;
-
-      // Remove items no longer in cart
-      const activeIds = items.map((i) => String(i.id));
-      const { data: existingRows } = await supabase
-        .from('cart_items')
-        .select('product_id')
-        .eq('user_id', uid);
-
-      const toDelete = (existingRows || [])
-        .map((r) => r.product_id)
-        .filter((pid) => !activeIds.includes(pid));
-
-      if (toDelete.length > 0) {
-        await supabase
-          .from('cart_items')
-          .delete()
-          .eq('user_id', uid)
-          .in('product_id', toDelete);
-      }
-    } catch (err) {
-      console.error('Cart sync error:', err.message);
+      isFirstSync.current = false;
     }
-  };
+    bootstrap();
 
-  const addItem = (product) => dispatch({ type: 'ADD_ITEM', payload: product });
-  const removeItem = (id) => dispatch({ type: 'REMOVE_ITEM', payload: id });
-  const updateQuantity = (id, quantity) => dispatch({ type: 'UPDATE_QUANTITY', payload: { id, quantity } });
-  const clearCart = () => dispatch({ type: 'CLEAR_CART' });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      const uid = session?.user?.id || null;
+      const prevUid = userIdRef.current;
+      userIdRef.current = uid;
 
-  const cartCount = state.items.reduce((sum, i) => sum + i.quantity, 0);
-  const cartTotal = state.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+      if (uid && uid !== prevUid) {
+        // New sign-in → load cloud cart
+        isFirstSync.current = true;
+        const merged = await loadCloudCart(uid);
+        if (merged && mounted) {
+          dispatch({ type: 'SET_ITEMS', payload: merged });
+        }
+        isFirstSync.current = false;
+      }
+    });
+
+    return () => { mounted = false; subscription.unsubscribe(); };
+  }, []);
+
+  // ── Debounced cloud sync (1 s after last change) ──────────
+  // Skip guests and the very first SET_ITEMS after sign-in to avoid
+  // immediately overwriting the cloud cart we just loaded.
+  useEffect(() => {
+    if (isFirstSync.current) return;
+    const uid = userIdRef.current;
+    if (!uid) return;                // guest: local only
+
+    clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = setTimeout(() => syncToCloud(uid, state.items), 1000);
+    return () => clearTimeout(syncTimerRef.current);
+  }, [state.items]);
+
+  const addItem      = useCallback((product) => dispatch({ type: 'ADD_ITEM',      payload: product }), []);
+  const removeItem   = useCallback((id)      => dispatch({ type: 'REMOVE_ITEM',   payload: id }),      []);
+  const updateQuantity = useCallback((id, quantity) =>
+    dispatch({ type: 'UPDATE_QUANTITY', payload: { id, quantity } }), []);
+  const clearCart    = useCallback(()        => dispatch({ type: 'CLEAR_CART' }),                      []);
+
+  const cartCount = state.items.reduce((s, i) => s + i.quantity, 0);
+  const cartTotal = state.items.reduce((s, i) => s + i.price * i.quantity, 0);
 
   return (
-    <CartContext.Provider
-      value={{
-        items: state.items,
-        cartCount,
-        cartTotal,
-        addItem,
-        removeItem,
-        updateQuantity,
-        clearCart,
-      }}
-    >
+    <CartContext.Provider value={{ items: state.items, cartCount, cartTotal, addItem, removeItem, updateQuantity, clearCart }}>
       {children}
     </CartContext.Provider>
   );

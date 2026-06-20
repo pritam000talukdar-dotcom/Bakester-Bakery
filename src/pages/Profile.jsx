@@ -102,9 +102,26 @@ export default function Profile() {
       });
   }, [user?.id]);
 
-  // ── Fetch orders ─────────────────────────────────────────
+  // ── Fetch orders (cache-first, shared with Orders page) ──────
   useEffect(() => {
+    if (!user?.id) { setOrdersLoading(false); return; }
     let cancelled = false;
+
+    const CACHE_KEY = `bakester_orders_${user.id}`;
+    const CACHE_TTL = 2 * 60 * 1000;
+
+    // Try cache first
+    try {
+      const raw = sessionStorage.getItem(CACHE_KEY);
+      if (raw) {
+        const { data, ts } = JSON.parse(raw);
+        if (Date.now() - ts < CACHE_TTL) {
+          setRecentOrders((data || []).slice(0, 10));
+          setOrdersLoading(false);
+          return; // fresh cache — skip network call
+        }
+      }
+    } catch { /* ignore */ }
 
     const run = async () => {
       setOrdersLoading(true);
@@ -125,15 +142,8 @@ export default function Profile() {
       }
     };
 
-    if (user?.id) {
-      run();
-    } else {
-      setOrdersLoading(false);
-    }
-
-    return () => {
-      cancelled = true;
-    };
+    run();
+    return () => { cancelled = true; };
   }, [user?.id]);
 
   // ── Handlers ─────────────────────────────────────────────

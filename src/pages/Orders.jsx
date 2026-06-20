@@ -20,7 +20,7 @@ const orderSteps = [
   { label: 'Delivered', icon: FiCheckCircle },
 ];
 
-function OrderCard({ order }) {
+function OrderCard({ order, onCancelOrder }) {
   const [expanded, setExpanded] = useState(false);
   const cfg = statusConfig[order.status] || statusConfig.Processing;
   const StatusIcon = cfg.icon;
@@ -168,6 +168,18 @@ function OrderCard({ order }) {
                   </div>
                 )}
               </div>
+
+              {/* Cancel Action */}
+              {order.status === 'Processing' && !order.ready_for_pickup && (
+                <div className="border-t border-cream-200 pt-4 mt-2 flex justify-end">
+                  <button
+                    onClick={() => onCancelOrder(order.id)}
+                    className="px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-semibold hover:bg-red-100 transition-colors flex items-center gap-2"
+                  >
+                    <FiAlertCircle size={16} /> Cancel Order
+                  </button>
+                </div>
+              )}
             </div>
           </motion.div>
         )}
@@ -176,18 +188,52 @@ function OrderCard({ order }) {
   );
 }
 
+// ── Per-user order cache (sessionStorage, 2 min TTL) ──────────
+const ORDER_CACHE_TTL = 2 * 60 * 1000;
+
+function readOrderCache(uid) {
+  try {
+    const raw = sessionStorage.getItem(`bakester_orders_${uid}`);
+    if (!raw) return null;
+    const { data, ts } = JSON.parse(raw);
+    if (Date.now() - ts < ORDER_CACHE_TTL) return data;
+  } catch { /* ignore */ }
+  return null;
+}
+
+function writeOrderCache(uid, data) {
+  try {
+    sessionStorage.setItem(`bakester_orders_${uid}`, JSON.stringify({ data, ts: Date.now() }));
+  } catch { /* quota exceeded */ }
+}
+
 export default function Orders() {
   const { user } = useAuth();
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [orders, setOrders] = useState(() => {
+    // Seed from cache instantly — zero loading flicker on back-navigation
+    if (user?.id) return readOrderCache(user.id) || [];
+    return [];
+  });
+  const [loading, setLoading] = useState(() => {
+    if (!user?.id) return false;
+    return !readOrderCache(user.id); // only show spinner on true cold load
+  });
   const [filter, setFilter] = useState('All');
   const filters = ['All', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
 
   useEffect(() => {
+    if (!user?.id) { setLoading(false); return; }
     let cancelled = false;
 
+    const cached = readOrderCache(user.id);
+    if (cached) {
+      // Show cached immediately, then silently refresh in background
+      setOrders(cached);
+      setLoading(false);
+    }
+
     const fetchOrders = async () => {
-      setLoading(true);
+      if (!cached) setLoading(true);
       try {
         const { data, error } = await supabase
           .from('orders')
@@ -195,25 +241,36 @@ export default function Orders() {
           .eq('user_id', user.id)
           .order('created_at', { ascending: false });
         if (error) throw error;
-        if (!cancelled) setOrders(data || []);
+        if (!cancelled) {
+          const fresh = data || [];
+          writeOrderCache(user.id, fresh);
+          setOrders(fresh);
+        }
       } catch (err) {
         console.error('Error fetching orders:', err.message);
-        if (!cancelled) setOrders([]);
       } finally {
         if (!cancelled) setLoading(false);
       }
     };
 
-    if (user) {
-      fetchOrders();
-    } else {
-      setLoading(false);
-    }
+    fetchOrders();
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
+  const handleCancelOrder = async (orderId) => {
+    if (!window.confirm('Are you sure you want to cancel this order?')) return;
+    try {
+      const { error } = await supabase.from('orders').update({ status: 'Cancelled' }).eq('id', orderId);
+      if (error) throw error;
+      
+      const updatedOrders = orders.map(o => o.id === orderId ? { ...o, status: 'Cancelled' } : o);
+      setOrders(updatedOrders);
+      if (user?.id) writeOrderCache(user.id, updatedOrders);
+    } catch (err) {
+      console.error('Error cancelling order:', err.message);
+      alert('Failed to cancel order.');
+    }
+  };
 
   const filtered = filter === 'All' ? orders : orders.filter((o) => o.status === filter);
 
@@ -270,7 +327,7 @@ export default function Orders() {
               ) : (
                 filtered.map((order) => (
                   <AnimatedSection key={order.id}>
-                    <OrderCard order={order} />
+                    <OrderCard order={order} onCancelOrder={handleCancelOrder} />
                   </AnimatedSection>
                 ))
               )}

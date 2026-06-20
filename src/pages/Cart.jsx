@@ -3,9 +3,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   FiTrash2, FiPlus, FiMinus, FiShoppingBag, FiArrowRight,
-  FiX, FiCheck, FiMapPin, FiUser, FiPhone, FiMail,
+  FiX, FiCheck, FiMapPin, FiUser, FiPhone, FiCheckCircle,
 } from 'react-icons/fi';
 import { useCart } from '../context/CartContext';
+import { useAuth } from '../context/AuthContext';
 import AnimatedSection from '../components/ui/AnimatedSection';
 import { supabase } from '../lib/supabase';
 
@@ -18,36 +19,41 @@ function generateOrderNumber() {
 }
 
 // ── Checkout Modal
-function CheckoutModal({ isOpen, onClose, cartItems, cartTotal, onSuccess }) {
+// Receives `user` and `profile` from the parent Cart component (via useAuth)
+function CheckoutModal({ isOpen, onClose, cartItems, cartTotal, onSuccess, user, profile }) {
   const [step, setStep] = useState(1); // 1 = details, 2 = success
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [form, setForm] = useState({
-    name: '', email: '', phone: '', address: '', notes: '',
-  });
+  const [notes, setNotes] = useState('');
+  const [form, setForm] = useState({ name: '', phone: '', address: '' });
   const [orderNumber, setOrderNumber] = useState('');
 
   const shipping = cartTotal > 500 ? 0 : 49;
   const tax = cartTotal * 0.05;
   const orderTotal = cartTotal + shipping + tax;
 
+  // A profile is "complete" when all three delivery fields are saved
+  const profileName    = profile?.full_name?.trim()  || '';
+  const profilePhone   = profile?.phone?.trim()      || '';
+  const profileAddress = profile?.address?.trim()    || '';
+  const profileComplete = !!(user && profileName && profilePhone && profileAddress);
+
   const validate = () => {
-    if (!form.name.trim()) return 'Please enter your name.';
+    if (!form.name.trim())    return 'Please enter your name.';
     if (!form.address.trim()) return 'Please enter your delivery address.';
     return null;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const err = validate();
-    if (err) { setError(err); return; }
+    if (!profileComplete) {
+      const err = validate();
+      if (err) { setError(err); return; }
+    }
     setError('');
     setLoading(true);
 
     try {
-      // Get current user (may be null for guests)
-      const { data: { user } } = await supabase.auth.getUser();
-
       const num = generateOrderNumber();
       const orderItems = cartItems.map((item) => ({
         id: item.id,
@@ -58,17 +64,20 @@ function CheckoutModal({ isOpen, onClose, cartItems, cartTotal, onSuccess }) {
         category: item.category || '',
       }));
 
+      const deliveryAddress = profileComplete ? profileAddress : form.address.trim();
+      const guestName       = user ? null : form.name.trim();
+      const guestPhone      = user ? null : form.phone.trim();
+
       const { error: insertErr } = await supabase.from('orders').insert({
         user_id: user?.id || null,
         order_number: num,
         items: orderItems,
         total: orderTotal,
-        address: form.address,
+        address: deliveryAddress,
         status: 'Processing',
-        special_notes: form.notes || null,
-        guest_name: user ? null : form.name,
-        guest_email: user ? null : form.email,
-        guest_phone: user ? null : form.phone,
+        special_notes: notes.trim() || null,
+        guest_name: guestName || null,
+        guest_phone: guestPhone || null,
       });
 
       if (insertErr) throw insertErr;
@@ -82,6 +91,9 @@ function CheckoutModal({ isOpen, onClose, cartItems, cartTotal, onSuccess }) {
     }
   };
 
+  // Display name on success screen
+  const displayName = profileComplete ? profileName : form.name;
+
   if (!isOpen) return null;
 
   return (
@@ -90,7 +102,7 @@ function CheckoutModal({ isOpen, onClose, cartItems, cartTotal, onSuccess }) {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
-      onClick={(e) => { if (step === 1) onClose(); }}
+      onClick={() => { if (step === 1) onClose(); }}
     >
       <motion.div
         initial={{ scale: 0.92, y: 24 }}
@@ -106,7 +118,11 @@ function CheckoutModal({ isOpen, onClose, cartItems, cartTotal, onSuccess }) {
             <div className="flex items-center justify-between px-6 py-5 border-b border-cream-100">
               <div>
                 <h2 className="font-serif text-xl font-bold text-chocolate">Complete Your Order</h2>
-                <p className="text-xs text-chocolate/50 mt-0.5">No account needed — just fill in your details</p>
+                <p className="text-xs text-chocolate/50 mt-0.5">
+                  {profileComplete
+                    ? 'Your saved profile will be used for delivery'
+                    : 'Just fill in your delivery details below'}
+                </p>
               </div>
               <button
                 onClick={onClose}
@@ -129,73 +145,106 @@ function CheckoutModal({ isOpen, onClose, cartItems, cartTotal, onSuccess }) {
               </div>
             </div>
 
-            {/* Form */}
             <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4 max-h-[60vh] overflow-y-auto">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-chocolate/60 mb-1.5">
-                    <FiUser size={10} className="inline mr-1" />Name *
-                  </label>
-                  <input
-                    type="text"
-                    value={form.name}
-                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                    placeholder="Your full name"
-                    className="w-full px-3 py-2.5 rounded-xl border border-cream-200 focus:border-rose-bakery text-sm outline-none text-chocolate bg-white"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-chocolate/60 mb-1.5">
-                    <FiPhone size={10} className="inline mr-1" />Phone
-                  </label>
-                  <input
-                    type="tel"
-                    value={form.phone}
-                    onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                    placeholder="+1 (555) 000-0000"
-                    className="w-full px-3 py-2.5 rounded-xl border border-cream-200 focus:border-rose-bakery text-sm outline-none text-chocolate bg-white"
-                  />
-                </div>
-              </div>
 
-              {/* <div>
-                <label className="block text-xs font-semibold text-chocolate/60 mb-1.5">
-                  <FiMail size={10} className="inline mr-1" />Email
-                </label>
-                <input
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                  placeholder="for order confirmation"
-                  className="w-full px-3 py-2.5 rounded-xl border border-cream-200 focus:border-rose-bakery text-sm outline-none text-chocolate bg-white"
-                />
-              </div> */}
+              {profileComplete ? (
+                /* ── Profile complete: show read-only card + notes only ── */
+                <>
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-2.5">
+                    <div className="flex items-center gap-2 mb-1">
+                      <FiCheckCircle size={14} className="text-emerald-500" />
+                      <span className="text-xs font-bold text-emerald-700 uppercase tracking-wide">
+                        Delivering to your saved profile
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-chocolate">
+                      <FiUser size={13} className="text-chocolate/40 flex-shrink-0" />
+                      <span className="font-medium">{profileName}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-chocolate">
+                      <FiPhone size={13} className="text-chocolate/40 flex-shrink-0" />
+                      <span>{profilePhone}</span>
+                    </div>
+                    <div className="flex items-start gap-2 text-sm text-chocolate">
+                      <FiMapPin size={13} className="text-chocolate/40 flex-shrink-0 mt-0.5" />
+                      <span className="leading-snug">{profileAddress}</span>
+                    </div>
+                  </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-chocolate/60 mb-1.5">
-                  <FiMapPin size={10} className="inline mr-1" />Delivery Address *
-                </label>
-                <textarea
-                  value={form.address}
-                  onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
-                  placeholder="Street address, city, state, zip code…"
-                  rows={3}
-                  className="w-full px-3 py-2.5 rounded-xl border border-cream-200 focus:border-rose-bakery text-sm outline-none text-chocolate bg-white resize-none"
-                  required
-                />
-              </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-chocolate/60 mb-1.5">
+                      Special Notes{' '}
+                      <span className="font-normal text-chocolate/40">(optional)</span>
+                    </label>
+                    <textarea
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="Allergies, cake message, delivery instructions…"
+                      rows={3}
+                      className="w-full px-3 py-2.5 rounded-xl border border-cream-200 focus:border-rose-bakery text-sm outline-none text-chocolate bg-white resize-none"
+                    />
+                  </div>
+                </>
+              ) : (
+                /* ── Guest / incomplete profile: full form ── */
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-chocolate/60 mb-1.5">
+                        <FiUser size={10} className="inline mr-1" />Name *
+                      </label>
+                      <input
+                        type="text"
+                        value={form.name}
+                        onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                        placeholder="Your full name"
+                        className="w-full px-3 py-2.5 rounded-xl border border-cream-200 focus:border-rose-bakery text-sm outline-none text-chocolate bg-white"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-chocolate/60 mb-1.5">
+                        <FiPhone size={10} className="inline mr-1" />Phone
+                      </label>
+                      <input
+                        type="tel"
+                        value={form.phone}
+                        onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                        placeholder="+91 98765 43210"
+                        className="w-full px-3 py-2.5 rounded-xl border border-cream-200 focus:border-rose-bakery text-sm outline-none text-chocolate bg-white"
+                      />
+                    </div>
+                  </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-chocolate/60 mb-1.5">Special Notes</label>
-                <textarea
-                  value={form.notes}
-                  onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                  placeholder="Allergies, cake message, delivery instructions…"
-                  rows={2}
-                  className="w-full px-3 py-2.5 rounded-xl border border-cream-200 focus:border-rose-bakery text-sm outline-none text-chocolate bg-white resize-none"
-                />
-              </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-chocolate/60 mb-1.5">
+                      <FiMapPin size={10} className="inline mr-1" />Delivery Address *
+                    </label>
+                    <textarea
+                      value={form.address}
+                      onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+                      placeholder="Street address, city, state, zip code…"
+                      rows={3}
+                      className="w-full px-3 py-2.5 rounded-xl border border-cream-200 focus:border-rose-bakery text-sm outline-none text-chocolate bg-white resize-none"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-chocolate/60 mb-1.5">
+                      Special Notes{' '}
+                      <span className="font-normal text-chocolate/40">(optional)</span>
+                    </label>
+                    <textarea
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="Allergies, cake message, delivery instructions…"
+                      rows={2}
+                      className="w-full px-3 py-2.5 rounded-xl border border-cream-200 focus:border-rose-bakery text-sm outline-none text-chocolate bg-white resize-none"
+                    />
+                  </div>
+                </>
+              )}
 
               {error && (
                 <motion.p
@@ -241,7 +290,7 @@ function CheckoutModal({ isOpen, onClose, cartItems, cartTotal, onSuccess }) {
             </motion.div>
             <h2 className="font-serif text-2xl font-bold text-chocolate mb-2">Order Placed! 🎂</h2>
             <p className="text-chocolate/60 mb-2">
-              Thank you, <span className="font-semibold text-chocolate">{form.name}</span>!
+              Thank you, <span className="font-semibold text-chocolate">{displayName}</span>!
             </p>
             <div className="inline-block bg-cream-50 rounded-2xl px-5 py-3 mb-6">
               <p className="text-xs text-chocolate/50 mb-1">Your Order Number</p>
@@ -249,7 +298,6 @@ function CheckoutModal({ isOpen, onClose, cartItems, cartTotal, onSuccess }) {
             </div>
             <p className="text-sm text-chocolate/60 mb-8">
               We've received your order and will start preparing it shortly.
-              {form.email && ' A confirmation will be sent to your email.'}
             </p>
             <div className="flex flex-col sm:flex-row gap-3">
               <button
@@ -276,6 +324,7 @@ function CheckoutModal({ isOpen, onClose, cartItems, cartTotal, onSuccess }) {
 // ── Main Cart Page ─────────────────────────────────────────────
 export default function Cart() {
   const { items, removeItem, updateQuantity, cartTotal, clearCart } = useCart();
+  const { user, profile } = useAuth();
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const navigate = useNavigate();
 
@@ -322,6 +371,8 @@ export default function Cart() {
             cartItems={items}
             cartTotal={cartTotal}
             onSuccess={handleOrderSuccess}
+            user={user}
+            profile={profile}
           />
         )}
       </AnimatePresence>
