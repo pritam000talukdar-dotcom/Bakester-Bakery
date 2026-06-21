@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import AnimatedSection from '../components/ui/AnimatedSection';
 import { FiBook, FiHeart, FiShield, FiDollarSign, FiArrowRight } from 'react-icons/fi';
+import { useProducts } from '../context/ProductsContext';
 
 const values = [
   {
@@ -51,6 +52,15 @@ const timeline = [
 ];
 
 export default function About() {
+  const { products } = useProducts();
+
+  const aboutImage = React.useMemo(() => {
+    const withImage = [...products]
+      .filter((p) => p.image_url)
+      .sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    return withImage[0]?.image_url || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='700' height='500' style='background:%23ffe4e6'><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-size='32' fill='%23e11d48'>The Bakester Story</text></svg>";
+  }, [products]);
+
   return (
     <main className="pt-20">
       {/* Hero */}
@@ -93,7 +103,7 @@ export default function About() {
                 <div className="absolute inset-4 bg-rose-pale/40 rounded-3xl rotate-2" />
                 <div className="relative rounded-3xl overflow-hidden shadow-2xl">
                   <img
-                    src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='700' height='500' style='background:%23ffe4e6'><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-size='32' fill='%23e11d48'>The Bakester Story</text></svg>"
+                    src={aboutImage}
                     alt="Bakester Bakery freshly baked cakes"
                     className="w-full h-[480px] object-cover"
                   />

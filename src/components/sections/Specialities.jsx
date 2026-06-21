@@ -125,8 +125,11 @@ export default function Specialities() {
   }, [products, categories]);
 
   const activeMeta = CATEGORY_META[activeCategory] || CATEGORY_META.Cakes;
-  const activeImage = activeMeta.image;
   const activeProducts = productsByCategory[activeCategory] || [];
+  
+  // Prefer the first product's admin-uploaded image over the SVG fallback
+  const firstProductImage = activeProducts.find(p => p.image_url)?.image_url;
+  const activeImage = firstProductImage || activeMeta.image;
 
   return (
     <section className="py-20 lg:py-28 bg-white overflow-hidden">

@@ -502,7 +502,7 @@ export default function Hero() {
               animate={{ opacity: 1, scale: 1, x: 0 }}
               exit={{ opacity: 0, scale: 0.95, x: direction * -40 }}
               transition={{ duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] }}
-              className="relative hidden lg:block"
+              className="relative mt-12 lg:mt-0"
             >
               <div className="absolute inset-0 -rotate-3 rounded-3xl bg-rose-pale/50" />
               <div className="relative rounded-3xl overflow-hidden shadow-2xl">
