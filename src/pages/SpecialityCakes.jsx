@@ -460,7 +460,7 @@ export default function SpecialityCakes() {
         {/* Background image */}
         <div
           className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: `url('https://images.unsplash.com/photo-1535141192574-5d4897c12636?w=1400&h=800&fit=crop&auto=format&q=80')` }}
+          style={{ backgroundImage: `url('${specialityProducts[0]?.image_url || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='1400' height='800' style='background:%232e1008'></svg>"}')` }}
         />
         {/* Deep gradient overlay */}
         <div className="absolute inset-0 bg-gradient-to-br from-chocolate/75 via-chocolate/55 to-rose-dark/40" />

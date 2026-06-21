@@ -11,12 +11,8 @@ const values = [
   { emoji: '🏡', label: 'Home Baked' },
 ];
 
-// Fallback bakery images (all genuine cake/bakery shots)
-const BAKERY_FALLBACKS = [
-  'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=700&h=500&fit=crop&auto=format&q=85',
-  'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=700&h=500&fit=crop&auto=format&q=85',
-  'https://images.unsplash.com/photo-1614707267537-b85aaf00c4b7?w=700&h=500&fit=crop&auto=format&q=85',
-];
+const placeholder = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="700" height="500" style="background:%23fdf2f8"><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="32" fill="%23f472b6">Our Bakery</text></svg>`;
+const BAKERY_FALLBACKS = [placeholder, placeholder, placeholder];
 
 export default function AboutSnippet() {
   const { products } = useProducts();

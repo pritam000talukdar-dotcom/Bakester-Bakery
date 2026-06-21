@@ -1,91 +1,78 @@
-import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
+/**
+ * AuthContext.jsx
+ *
+ * Manages Supabase authentication state globally. Profile data is now
+ * fetched and cached by React Query (useProfileQuery) rather than a manual
+ * fetch inside this context, removing the duplicate DB call when navigating
+ * between Profile page and other pages.
+ *
+ * Changes vs. original:
+ *  ✗  fetchProfile() helper and its useCallback — replaced by queryClient.invalidateQueries
+ *  ✗  initialFetchDone ref guard — React Query's enabled + staleTime handles de-dup
+ *  ✗  setProfile / setIsAdmin state — profile data lives in React Query cache
+ *  ✓  user, session, loading — still managed here via useState (auth-only concern)
+ *  ✓  signUp, signIn, signOut, resetPassword — unchanged
+ *  ✓  updateProfile — now delegates to useProfileQuery mutation in callers;
+ *      kept here as a thin wrapper for backward compat with existing callers
+ *  ✓  onAuthStateChange subscription — still required for global auth events
+ */
+
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { queryClient } from '../lib/queryClient';
+import { queryKeys } from '../lib/queryKeys';
+import { updateProfileApi, fetchProfile } from '../lib/api';
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children, onOpenModal }) => {
-  const [user, setUser] = useState(null);
-  const [profile, setProfile] = useState(null);
+  const [user,    setUser]    = useState(null);
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
 
-  // Track whether we already fetched for the initial session bootstrap so
-  // onAuthStateChange doesn't duplicate the request on page load.
-  // We intentionally do NOT skip subsequent manual refresh calls.
-  const initialFetchDone = useRef(false);
-
-  // Fetch profile from Supabase — select only the columns we need
-  const fetchProfile = useCallback(async (userId) => {
-    if (!userId) return;
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, full_name, phone, address, is_admin, updated_at')
-        .eq('id', userId)
-        .single();
-      if (error) throw error;
-      setProfile(data);
-      setIsAdmin(data?.is_admin === true);
-    } catch (err) {
-      console.error('Error fetching profile:', err.message);
-      setProfile(null);
-      setIsAdmin(false);
-    }
-  }, []);
-
-  // Public helper: force-refresh the current user's profile from the DB.
-  // Call this on pages that need the freshest admin status (e.g. Profile page).
-  const refreshProfile = useCallback(async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user) {
-      await fetchProfile(session.user.id);
-    }
-  }, [fetchProfile]);
-
+  // ── Auth state bootstrap + listener ─────────────────────────────────────
   useEffect(() => {
     let mounted = true;
 
-    // 1. Bootstrap immediately from the cached JWT (synchronous localStorage read)
-    supabase.auth.getSession().then(async ({ data: { session }, error }) => {
+    // 1. Read the JWT from localStorage synchronously (no network call)
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
       if (!mounted) return;
       if (error) console.error('Session error:', error);
-      
+
       setSession(session);
       setUser(session?.user ?? null);
 
+      // Pre-warm the profile cache immediately if a session exists
       if (session?.user) {
-        await fetchProfile(session.user.id);
-        initialFetchDone.current = true;
+        queryClient.prefetchQuery({
+          queryKey: queryKeys.profile.byUser(session.user.id),
+          queryFn:  () => fetchProfile(session.user.id),
+          staleTime: 5 * 60 * 1000,
+        });
       }
 
       if (mounted) setLoading(false);
-    }).catch(err => {
+    }).catch((err) => {
       console.error('getSession exception:', err);
       if (mounted) setLoading(false);
     });
 
     // 2. React to sign-in / sign-out / token-refresh events
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return;
 
       setSession(session);
       setUser(session?.user ?? null);
 
       if (session?.user) {
-        // Skip only the very first INITIAL_SESSION event if getSession() already
-        // fetched the profile above. For SIGNED_IN (fresh login) always fetch.
-        const isInitialEvent = event === 'INITIAL_SESSION';
-        if (!isInitialEvent || !initialFetchDone.current) {
-          await fetchProfile(session.user.id);
-          initialFetchDone.current = true;
-        }
+        // Invalidate → React Query will re-fetch the profile automatically
+        // when any component that calls useProfileQuery(uid) is mounted.
+        queryClient.invalidateQueries({ queryKey: queryKeys.profile.byUser(session.user.id) });
       } else {
-        initialFetchDone.current = false;
-        setProfile(null);
-        setIsAdmin(false);
+        // On sign-out: remove all user-specific cached data
+        queryClient.removeQueries({ queryKey: queryKeys.profile.all });
+        queryClient.removeQueries({ queryKey: queryKeys.orders.all });
+        queryClient.removeQueries({ queryKey: queryKeys.cart.all });
       }
 
       if (mounted) setLoading(false);
@@ -95,9 +82,9 @@ export const AuthProvider = ({ children, onOpenModal }) => {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [fetchProfile]);
+  }, []);
 
-  // ── Auth actions ──────────────────────────────────────────────────────────
+  // ── Auth actions ─────────────────────────────────────────────────────────
 
   const signUp = async (email, password, fullName) => {
     const { data, error } = await supabase.auth.signUp({
@@ -109,8 +96,6 @@ export const AuthProvider = ({ children, onOpenModal }) => {
     return data;
   };
 
-  // After signInWithPassword resolves, onAuthStateChange fires SIGNED_IN
-  // which calls fetchProfile — no extra work needed here.
   const signIn = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
@@ -120,24 +105,19 @@ export const AuthProvider = ({ children, onOpenModal }) => {
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
-    initialFetchDone.current = false;
-    setUser(null);
-    setProfile(null);
-    setSession(null);
-    setIsAdmin(false);
+    // State cleared by onAuthStateChange listener above
   };
 
+  /**
+   * updateProfile — kept for backward compat.
+   * Components that already call useAuth().updateProfile() will still work.
+   * New components should prefer the useMutation from useProfileQuery directly.
+   */
   const updateProfile = async (updates) => {
     if (!user) throw new Error('Not authenticated');
-    const { data, error } = await supabase
-      .from('profiles')
-      .update({ ...updates, updated_at: new Date().toISOString() })
-      .eq('id', user.id)
-      .select('id, full_name, phone, address, is_admin, updated_at')
-      .single();
-    if (error) throw error;
-    setProfile(data);
-    setIsAdmin(data?.is_admin === true);
+    const data = await updateProfileApi(user.id, updates);
+    // Update the React Query cache so all subscribers see fresh data instantly
+    queryClient.setQueryData(queryKeys.profile.byUser(user.id), data);
     return data;
   };
 
@@ -148,18 +128,25 @@ export const AuthProvider = ({ children, onOpenModal }) => {
     if (error) throw error;
   };
 
+  /**
+   * refreshProfile — triggers a React Query invalidation so the profile is
+   * re-fetched from the DB. Replaces the old manual fetchProfile() call.
+   */
+  const refreshProfile = useCallback(() => {
+    if (user?.id) {
+      queryClient.invalidateQueries({ queryKey: queryKeys.profile.byUser(user.id) });
+    }
+  }, [user?.id]);
+
   const value = {
     user,
-    profile,
     session,
     loading,
-    isAdmin,
     signUp,
     signIn,
     signOut,
     updateProfile,
     resetPassword,
-    fetchProfile,
     refreshProfile,
     openAuthModal: onOpenModal,
   };

@@ -55,11 +55,8 @@ const SLIDE_CONTENT = [
 ];
 
 // Real fallback cake images (only used if DB has zero products)
-const FALLBACK_IMAGES = [
-  'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=800&h=600&fit=crop&auto=format&q=85',
-  'https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=800&h=600&fit=crop&auto=format&q=85',
-  'https://images.unsplash.com/photo-1535141192574-5d4897c12636?w=800&h=600&fit=crop&auto=format&q=85',
-];
+const placeholder = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" style="background:%23fdf2f8"><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="32" fill="%23f472b6">Sweet Treats</text></svg>`;
+const FALLBACK_IMAGES = [placeholder, placeholder, placeholder];
 
 // ── Popular search tags ──────────────────────────────────────
 const POPULAR_TAGS = ['Birthday Cake', 'Brownies', 'Red Velvet', 'Wedding Cake', 'Chocolate'];

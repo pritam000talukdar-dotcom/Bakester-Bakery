@@ -18,7 +18,7 @@ export const galleryImages = [
   {
     id: 1,
     type: 'image',
-    src: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&h=400&fit=crop',
+    src: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"></svg>',
     alt: 'Artisan cake decoration process',
     category: 'process',
     title: 'The Art of Decoration',
@@ -26,7 +26,7 @@ export const galleryImages = [
   {
     id: 2,
     type: 'image',
-    src: 'https://images.unsplash.com/photo-1589985270826-4b7bb135bc9d?w=600&h=400&fit=crop',
+    src: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"></svg>',
     alt: 'Fresh baked brownies',
     category: 'products',
     title: 'Fresh From the Oven',
@@ -34,7 +34,7 @@ export const galleryImages = [
   {
     id: 3,
     type: 'image',
-    src: 'https://images.unsplash.com/photo-1587241321921-91a834d6d191?w=600&h=400&fit=crop',
+    src: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"></svg>',
     alt: 'Wedding cake creation',
     category: 'events',
     title: 'Wedding Masterpiece',
@@ -42,7 +42,7 @@ export const galleryImages = [
   {
     id: 4,
     type: 'image',
-    src: 'https://images.unsplash.com/photo-1571877227200-a0d98ea607e9?w=600&h=400&fit=crop',
+    src: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"></svg>',
     alt: 'Cake making process',
     category: 'process',
     title: 'Baked with Love',
@@ -50,7 +50,7 @@ export const galleryImages = [
   {
     id: 5,
     type: 'image',
-    src: 'https://images.unsplash.com/photo-1607478900766-efe13248b125?w=600&h=400&fit=crop',
+    src: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"></svg>',
     alt: 'Celebration cake',
     category: 'events',
     title: 'Celebration Moments',
@@ -58,7 +58,7 @@ export const galleryImages = [
   {
     id: 6,
     type: 'image',
-    src: 'https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?w=600&h=400&fit=crop',
+    src: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"></svg>',
     alt: 'Pastry selection',
     category: 'products',
     title: 'Pastry Heaven',
@@ -81,3 +81,4 @@ export const processVideos = [
   //   description: 'Watch our master bakers craft our famous signature cakes from scratch.',
   // }
 ];
+

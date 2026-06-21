@@ -10,31 +10,31 @@ import { useCart } from '../../context/CartContext';
 // Category hero images + metadata
 const CATEGORY_META = {
   Brownies: {
-    image: 'https://images.unsplash.com/photo-1564355808539-22fda35bed7e?w=600&h=420&fit=crop&auto=format&q=80',
+    image: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="600" height="420" style="background:%2378350f"><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="28" fill="%23fcd34d">Brownies</text></svg>',
     emoji: '🍫',
     tagline: 'Dense, fudgy & irresistible',
     color: 'from-amber-900/80',
   },
   Cakes: {
-    image: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&h=420&fit=crop&auto=format&q=80',
+    image: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="600" height="420" style="background:%239f1239"><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="28" fill="%23fcd34d">Cakes</text></svg>',
     emoji: '🎂',
     tagline: 'Every slice a masterpiece',
     color: 'from-rose-900/80',
   },
   Tarts: {
-    image: 'https://images.unsplash.com/photo-1488477181946-6428a0291777?w=600&h=420&fit=crop&auto=format&q=80',
+    image: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="600" height="420" style="background:%23854d0e"><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="28" fill="%23fcd34d">Tarts</text></svg>',
     emoji: '🥧',
     tagline: 'Buttery, golden, divine',
     color: 'from-yellow-900/70',
   },
   Celebration: {
-    image: 'https://images.unsplash.com/photo-1535141192574-5d4897c12636?w=600&h=420&fit=crop&auto=format&q=80',
+    image: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="600" height="420" style="background:%23581c87"><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="28" fill="%23fcd34d">Celebration</text></svg>',
     emoji: '🎉',
     tagline: 'For your most special moments',
     color: 'from-purple-900/80',
   },
   Speciality: {
-    image: 'https://images.unsplash.com/photo-1614707267537-b85aaf00c4b7?w=600&h=420&fit=crop&auto=format&q=80',
+    image: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="600" height="420" style="background:%23451a03"><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="28" fill="%23fcd34d">Speciality</text></svg>',
     emoji: '✨',
     tagline: 'Artisan creations, uniquely ours',
     color: 'from-chocolate/80',

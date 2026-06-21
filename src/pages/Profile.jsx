@@ -9,7 +9,8 @@ import {
 } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 import { useProducts } from '../context/ProductsContext';
-import { supabase } from '../lib/supabase';
+import { useProfileQuery } from '../hooks/useProfileQuery';
+import { useOrdersQuery } from '../hooks/useOrdersQuery';
 
 const navItems = [
   { label: 'Profile', icon: FiEdit2, id: 'profile' },
@@ -26,16 +27,25 @@ const statusColors = {
 };
 
 export default function Profile() {
-  const { user, profile, updateProfile, signOut } = useAuth();
+  const { user, signOut } = useAuth();
   const { products } = useProducts();
+
+  // ── React Query: profile data + isAdmin (cached 5 min, shared globally) ──
+  const {
+    profile,
+    isAdmin: isAdminLocal,
+    isSaving: saving,
+    saveError: saveErrorFromMutation,
+    updateProfile,
+  } = useProfileQuery(user?.id ?? null);
+
+  // ── React Query: orders — same cache key as Orders page, zero extra call ──
+  const { orders: recentOrders, isLoading: ordersLoading } = useOrdersQuery(user?.id ?? null);
+
   const [activeTab, setActiveTab] = useState('profile');
   const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState('');
-  const [recentOrders, setRecentOrders] = useState([]);
-  const [ordersLoading, setOrdersLoading] = useState(false);
-  const [isAdminLocal, setIsAdminLocal] = useState(false);
 
   // Wishlist: stored as array of product IDs in localStorage, keyed by user
   const getWishlistKey = (uid) => `bakester_wishlist_${uid || 'guest'}`;
@@ -78,7 +88,7 @@ export default function Profile() {
 
   const [form, setForm] = useState({ full_name: '', phone: '', address: '' });
 
-  // ── Sync profile → form ──────────────────────────────────
+  // ── Sync profile → form when profile loads / changes ────────────────────
   useEffect(() => {
     if (profile) {
       setForm({
@@ -89,66 +99,12 @@ export default function Profile() {
     }
   }, [profile]);
 
-  // ── Admin check ──────────────────────────────────────────
-  useEffect(() => {
-    if (!user?.id) return;
-    supabase
-      .from('profiles')
-      .select('is_admin')
-      .eq('id', user.id)
-      .single()
-      .then(({ data, error }) => {
-        if (!error && data) setIsAdminLocal(data.is_admin === true);
-      });
-  }, [user?.id]);
-
-  // ── Fetch orders (cache-first, shared with Orders page) ──────
-  useEffect(() => {
-    if (!user?.id) { setOrdersLoading(false); return; }
-    let cancelled = false;
-
-    const CACHE_KEY = `bakester_orders_${user.id}`;
-    const CACHE_TTL = 2 * 60 * 1000;
-
-    // Try cache first
-    try {
-      const raw = sessionStorage.getItem(CACHE_KEY);
-      if (raw) {
-        const { data, ts } = JSON.parse(raw);
-        if (Date.now() - ts < CACHE_TTL) {
-          setRecentOrders((data || []).slice(0, 10));
-          setOrdersLoading(false);
-          return; // fresh cache — skip network call
-        }
-      }
-    } catch { /* ignore */ }
-
-    const run = async () => {
-      setOrdersLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from('orders')
-          .select('id, order_number, created_at, status, total, items')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(10);
-        if (error) throw error;
-        if (!cancelled) setRecentOrders(data || []);
-      } catch (err) {
-        console.error('Orders error:', err.message);
-        if (!cancelled) setRecentOrders([]);
-      } finally {
-        if (!cancelled) setOrdersLoading(false);
-      }
-    };
-
-    run();
-    return () => { cancelled = true; };
-  }, [user?.id]);
+  // NOTE: isAdminLocal comes from useProfileQuery (profile.is_admin field).
+  // recentOrders and ordersLoading come from useOrdersQuery.
+  // Both are React Query cached — no manual DB calls needed here.
 
   // ── Handlers ─────────────────────────────────────────────
   const handleSave = async () => {
-    setSaving(true);
     setSaveError('');
     setSaveSuccess(false);
     try {
@@ -161,9 +117,7 @@ export default function Profile() {
       setEditing(false);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
-      setSaveError(err.message || 'Failed to save changes');
-    } finally {
-      setSaving(false);
+      setSaveError(err.message || saveErrorFromMutation || 'Failed to save changes');
     }
   };
 

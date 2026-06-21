@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import AnimatedSection from '../components/ui/AnimatedSection';
 import { FiPackage, FiTruck, FiCheckCircle, FiClock, FiChevronDown, FiAlertCircle, FiMessageSquare } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
-import { supabase } from '../lib/supabase';
+import { useOrdersQuery } from '../hooks/useOrdersQuery';
 
 const statusConfig = {
   Delivered:  { color: 'text-green-700 bg-green-50',  icon: FiCheckCircle, iconColor: 'text-green-600' },
@@ -53,7 +53,7 @@ function OrderCard({ order, onCancelOrder }) {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          {/* Ready for Pickup badge — shown prominently when admin toggles it */}
+          {/* Ready for Pickup badge */}
           {order.ready_for_pickup && (
             <motion.span
               initial={{ scale: 0.8, opacity: 0 }}
@@ -188,84 +188,19 @@ function OrderCard({ order, onCancelOrder }) {
   );
 }
 
-// ── Per-user order cache (sessionStorage, 2 min TTL) ──────────
-const ORDER_CACHE_TTL = 2 * 60 * 1000;
-
-function readOrderCache(uid) {
-  try {
-    const raw = sessionStorage.getItem(`bakester_orders_${uid}`);
-    if (!raw) return null;
-    const { data, ts } = JSON.parse(raw);
-    if (Date.now() - ts < ORDER_CACHE_TTL) return data;
-  } catch { /* ignore */ }
-  return null;
-}
-
-function writeOrderCache(uid, data) {
-  try {
-    sessionStorage.setItem(`bakester_orders_${uid}`, JSON.stringify({ data, ts: Date.now() }));
-  } catch { /* quota exceeded */ }
-}
-
 export default function Orders() {
   const { user } = useAuth();
-  const [orders, setOrders] = useState(() => {
-    // Seed from cache instantly — zero loading flicker on back-navigation
-    if (user?.id) return readOrderCache(user.id) || [];
-    return [];
-  });
-  const [loading, setLoading] = useState(() => {
-    if (!user?.id) return false;
-    return !readOrderCache(user.id); // only show spinner on true cold load
-  });
   const [filter, setFilter] = useState('All');
   const filters = ['All', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
 
-  useEffect(() => {
-    if (!user?.id) { setLoading(false); return; }
-    let cancelled = false;
-
-    const cached = readOrderCache(user.id);
-    if (cached) {
-      // Show cached immediately, then silently refresh in background
-      setOrders(cached);
-      setLoading(false);
-    }
-
-    const fetchOrders = async () => {
-      if (!cached) setLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from('orders')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false });
-        if (error) throw error;
-        if (!cancelled) {
-          const fresh = data || [];
-          writeOrderCache(user.id, fresh);
-          setOrders(fresh);
-        }
-      } catch (err) {
-        console.error('Error fetching orders:', err.message);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    fetchOrders();
-    return () => { cancelled = true; };
-  }, [user?.id]);
+  // ── React Query: orders cached per-user, shared with Profile page ─────────
+  // No sessionStorage / manual TTL needed — React Query handles it all.
+  const { orders, isLoading, cancelOrder } = useOrdersQuery(user?.id ?? null);
 
   const handleCancelOrder = async (orderId) => {
     if (!window.confirm('Are you sure you want to cancel this order?')) return;
     try {
-      const { error } = await supabase.from('orders').update({ status: 'Cancelled' }).eq('id', orderId);
-      if (error) throw error;
-      
-      const updatedOrders = orders.map(o => o.id === orderId ? { ...o, status: 'Cancelled' } : o);
-      setOrders(updatedOrders);
-      if (user?.id) writeOrderCache(user.id, updatedOrders);
+      await cancelOrder(orderId);
     } catch (err) {
       console.error('Error cancelling order:', err.message);
       alert('Failed to cancel order.');
@@ -303,7 +238,7 @@ export default function Orders() {
           </div>
 
           {/* Loading skeleton */}
-          {loading ? (
+          {isLoading ? (
             <div className="space-y-4">
               {[1, 2, 3].map((i) => (
                 <div key={i} className="h-20 bg-white rounded-2xl shadow-card animate-pulse" />

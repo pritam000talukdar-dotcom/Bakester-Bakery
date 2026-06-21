@@ -93,7 +93,7 @@ export default function About() {
                 <div className="absolute inset-4 bg-rose-pale/40 rounded-3xl rotate-2" />
                 <div className="relative rounded-3xl overflow-hidden shadow-2xl">
                   <img
-                    src="https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=700&h=500&fit=crop&auto=format&q=85"
+                    src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='700' height='500' style='background:%23ffe4e6'><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-size='32' fill='%23e11d48'>The Bakester Story</text></svg>"
                     alt="Bakester Bakery freshly baked cakes"
                     className="w-full h-[480px] object-cover"
                   />

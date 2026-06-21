@@ -29,7 +29,7 @@ export default function ChocolateAd() {
   }, [products]);
 
   const heroImage = heroChocolate?.image_url ||
-    'https://images.unsplash.com/photo-1606890737304-57a1ca8a5994?w=600&h=420&fit=crop&auto=format&q=85';
+    'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="600" height="420" style="background:%234A2C16"><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="28" fill="%23fcd34d">Chocolate Extravaganza</text></svg>';
 
   return (
     <section
@@ -156,19 +156,19 @@ export default function ChocolateAd() {
                 {
                   name: 'Belgian Brownie Box',
                   desc: 'Rich dense brownies made with premium Belgian cocoa.',
-                  img: 'https://images.unsplash.com/photo-1564355808539-22fda35bed7e?w=400&h=300&fit=crop&auto=format&q=80',
+                  img: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" style="background:%2378350f"><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="20" fill="%23fcd34d">Belgian Brownie</text></svg>',
                   price: 149,
                 },
                 {
                   name: 'Classic Fudge Brownie',
                   desc: 'Gooey centre, crackly top — the perfect brownie.',
-                  img: 'https://images.unsplash.com/photo-1549007994-cb92caebd54b?w=400&h=300&fit=crop&auto=format&q=80',
+                  img: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" style="background:%2392400e"><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="20" fill="%23fcd34d">Fudge Brownie</text></svg>',
                   price: 99,
                 },
                 {
                   name: 'Choco Walnut Brownie',
                   desc: 'Dark chocolate loaded with crunchy walnuts.',
-                  img: 'https://images.unsplash.com/photo-1481391243133-f96216dcb5d2?w=400&h=300&fit=crop&auto=format&q=80',
+                  img: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" style="background:%23b45309"><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="20" fill="%23fcd34d">Walnut Brownie</text></svg>',
                   price: 129,
                 },
               ].map((item, i) => (

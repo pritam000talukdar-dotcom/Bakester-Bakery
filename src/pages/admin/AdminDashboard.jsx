@@ -16,6 +16,11 @@ import {
 } from 'recharts';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
+import { useProductsQuery } from '../../hooks/useProductsQuery';
+import { useAdminOrdersQuery } from '../../hooks/useOrdersQuery';
+import { queryClient } from '../../lib/queryClient';
+import { queryKeys } from '../../lib/queryKeys';
+import { createProduct, updateProduct, deleteProduct } from '../../lib/api';
 
 // ── Stock buffer — users see this many fewer units than the DB holds ──────────
 const STOCK_BUFFER = 5;
@@ -671,17 +676,13 @@ export default function AdminDashboard() {
   const [toasts, setToasts] = useState([]);
   const [isDark, setIsDark] = useState(true);
 
-  // Products
-  const [products, setProducts] = useState([]);
-  const [productsLoading, setProductsLoading] = useState(true);
+  // Products state now managed by React Query
   const [productSearch, setProductSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [categoryFilter, setCategoryFilter] = useState('All');
 
-  // Orders
-  const [orders, setOrders] = useState([]);
-  const [ordersLoading, setOrdersLoading] = useState(true);
+  // Orders state now managed by React Query
   const [orderSearch, setOrderSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
 
@@ -752,46 +753,44 @@ export default function AdminDashboard() {
   }, []);
   const removeToast = useCallback((id) => setToasts((p) => p.filter((t) => t.id !== id)), []);
 
-  // ── Loaders ──────────────────────────────────────────────
-  const loadProducts = useCallback(async () => {
-    setProductsLoading(true);
-    try {
-      const { data, error } = await supabase.from('products').select('*').order('created_at', { ascending: false });
-      if (error) throw error;
-      setProducts(data || []);
-      // Seed the previous-quantity tracker so Realtime diffs are accurate
-      const qtyMap = {};
-      (data || []).forEach((p) => { qtyMap[p.id] = p.quantity ?? 0; });
-      prevQtyRef.current = qtyMap;
-      setStats((s) => ({
-        ...s,
-        products: data?.length || 0,
-        // Admin low-stock: actual qty > 0 and <= STOCK_BUFFER
-        lowStock: (data || []).filter((p) => (p.quantity ?? 0) > 0 && (p.quantity ?? 0) <= STOCK_BUFFER).length,
-        // Admin out-of-stock: in_stock false OR qty == 0
-        outOfStock: (data || []).filter((p) => !p.in_stock || (p.quantity ?? 0) === 0).length,
-      }));
-    } catch (err) {
-      addToast('Failed to load products: ' + err.message, 'error');
-    } finally {
-      setProductsLoading(false);
-    }
-  }, [addToast]);
+  // ── React Query: products + orders (replaces manual loaders) ─────────────
+  const {
+    rawProducts: products,
+    isLoading: productsLoading,
+    refetch: refetchProducts,
+  } = useProductsQuery();
 
-  const loadOrders = useCallback(async () => {
-    setOrdersLoading(true);
-    try {
-      const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
-      if (error) throw error;
-      setOrders(data || []);
-      const revenue = (data || []).reduce((s, o) => s + (o.total || 0), 0);
-      setStats((s) => ({ ...s, orders: data?.length || 0, revenue }));
-    } catch (err) {
-      addToast('Failed to load orders: ' + err.message, 'error');
-    } finally {
-      setOrdersLoading(false);
-    }
-  }, [addToast]);
+  const {
+    orders,
+    isLoading: ordersLoading,
+    refetch: refetchOrders,
+    updateStatus: rqUpdateStatus,
+    markReadyForPickup: rqMarkReady,
+    cancelOrder: rqCancelOrder,
+  } = useAdminOrdersQuery();
+
+  // Sync stats when RQ data changes
+  useEffect(() => {
+    if (!products.length) return;
+    const qtyMap = {};
+    products.forEach((p) => { qtyMap[p.id] = p.quantity ?? 0; });
+    prevQtyRef.current = qtyMap;
+    setStats((s) => ({
+      ...s,
+      products: products.length,
+      lowStock:   products.filter((p) => (p.quantity ?? 0) > 0 && (p.quantity ?? 0) <= STOCK_BUFFER).length,
+      outOfStock: products.filter((p) => !p.in_stock || (p.quantity ?? 0) === 0).length,
+    }));
+  }, [products]);
+
+  useEffect(() => {
+    if (!orders.length) return;
+    const revenue = orders.reduce((s, o) => s + (o.total || 0), 0);
+    setStats((s) => ({ ...s, orders: orders.length, revenue }));
+  }, [orders]);
+
+  const loadProducts = useCallback(() => refetchProducts(), [refetchProducts]);
+  const loadOrders   = useCallback(() => refetchOrders(),   [refetchOrders]);
 
   const loadImages = useCallback(async () => {
     setImagesLoading(true);
@@ -832,7 +831,7 @@ export default function AdminDashboard() {
           addNotification(updated.name, updated.id, 'out_of_stock');
         }
 
-        setProducts((prev) => prev.map((p) => p.id === updated.id ? updated : p));
+        queryClient.setQueryData(queryKeys.products.list(), (old = []) => old.map((p) => p.id === updated.id ? updated : p));
         prevQtyRef.current[updated.id] = newQty;
       })
       .subscribe();
@@ -849,7 +848,7 @@ export default function AdminDashboard() {
         addNotification(`New order received: ${newOrder.order_number}`, newOrder.id, 'new_order');
         addToast(`🛍️ New Order: ${newOrder.order_number}`, 'success');
         playNotificationSound();
-        setOrders((prev) => [newOrder, ...prev]);
+        queryClient.setQueryData(queryKeys.orders.admin(), (old = []) => [newOrder, ...old]);
         setStats((s) => ({ ...s, orders: s.orders + 1, revenue: s.revenue + (newOrder.total || 0) }));
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, (payload) => {
@@ -862,7 +861,7 @@ export default function AdminDashboard() {
           playNotificationSound();
         }
         
-        setOrders((prevOrders) => prevOrders.map(o => o.id === updated.id ? updated : o));
+        queryClient.setQueryData(queryKeys.orders.admin(), (old = []) => old.map((o) => o.id === updated.id ? updated : o));
       })
       .subscribe();
 
@@ -916,8 +915,7 @@ export default function AdminDashboard() {
       autoData.in_stock = false;
     }
     if (editingProduct) {
-      const { error } = await supabase.from('products').update({ ...autoData, updated_at: new Date().toISOString() }).eq('id', editingProduct.id);
-      if (error) throw error;
+      await updateProduct(editingProduct.id, { ...autoData, updated_at: new Date().toISOString() });
       if (Number(autoData.quantity) <= STOCK_BUFFER) {
         addNotification(autoData.name, editingProduct.id, 'out_of_stock');
         addToast(`⚠️ "${autoData.name}" saved as Out of Stock (qty ≤ ${STOCK_BUFFER})`, 'error');
@@ -925,24 +923,22 @@ export default function AdminDashboard() {
         addToast('Product updated!');
       }
     } else {
-      const { error } = await supabase.from('products').insert(autoData);
-      if (error) throw error;
+      await createProduct(autoData);
       if (Number(autoData.quantity) <= STOCK_BUFFER) {
         addToast(`⚠️ "${autoData.name}" added as Out of Stock (qty ≤ ${STOCK_BUFFER})`, 'error');
       } else {
         addToast('Product added!');
       }
     }
-    loadProducts();
+    queryClient.invalidateQueries({ queryKey: queryKeys.products.list() });
     setEditingProduct(null);
   };
 
   const handleDeleteProduct = async (id, name) => {
     if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
     try {
-      const { error } = await supabase.from('products').delete().eq('id', id);
-      if (error) throw error;
-      setProducts((p) => p.filter((x) => x.id !== id));
+      await deleteProduct(id);
+      queryClient.setQueryData(queryKeys.products.list(), (old = []) => old.filter((p) => p.id !== id));
       addToast('Product deleted.');
     } catch (err) {
       addToast('Delete failed: ' + err.message, 'error');
@@ -951,9 +947,7 @@ export default function AdminDashboard() {
 
   const handleOrderStatus = async (orderId, status) => {
     try {
-      const { error } = await supabase.from('orders').update({ status }).eq('id', orderId);
-      if (error) throw error;
-      setOrders((p) => p.map((o) => o.id === orderId ? { ...o, status } : o));
+      await rqUpdateStatus({ orderId, status });
       addToast(`Order updated to ${status}`);
     } catch (err) {
       addToast('Failed: ' + err.message, 'error');
@@ -962,11 +956,7 @@ export default function AdminDashboard() {
 
   const handleReadyForPickup = async (orderId, orderNumber, customerName) => {
     try {
-      const { error } = await supabase.from('orders')
-        .update({ ready_for_pickup: true, status: 'Shipped', updated_at: new Date().toISOString() })
-        .eq('id', orderId);
-      if (error) throw error;
-      setOrders((p) => p.map((o) => o.id === orderId ? { ...o, ready_for_pickup: true, status: 'Shipped' } : o));
+      await rqMarkReady(orderId);
       const msg = `Order ${orderNumber} is Ready for Pickup${customerName ? ` — ${customerName}` : ''}`;
       addNotification(msg, orderId, 'ready_pickup');
       addToast(`🎉 ${orderNumber} marked Ready for Pickup!`);
@@ -978,11 +968,7 @@ export default function AdminDashboard() {
   const handleCancelOrder = async (orderId, orderNumber) => {
     if (!confirm(`Cancel order "${orderNumber}"? This cannot be undone.`)) return;
     try {
-      const { error } = await supabase.from('orders')
-        .update({ status: 'Cancelled', cancelled_by_admin: true, updated_at: new Date().toISOString() })
-        .eq('id', orderId);
-      if (error) throw error;
-      setOrders((p) => p.map((o) => o.id === orderId ? { ...o, status: 'Cancelled', cancelled_by_admin: true } : o));
+      await rqCancelOrder(orderId);
       addNotification(`Order ${orderNumber} was cancelled by admin`, orderId, 'cancelled');
       addToast(`Order ${orderNumber} cancelled.`, 'error');
     } catch (err) {

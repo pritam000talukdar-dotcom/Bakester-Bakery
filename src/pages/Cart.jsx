@@ -8,7 +8,8 @@ import {
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import AnimatedSection from '../components/ui/AnimatedSection';
-import { supabase } from '../lib/supabase';
+import { useProfileQuery } from '../hooks/useProfileQuery';
+import { useOrdersQuery } from '../hooks/useOrdersQuery';
 
 // ── Order number generator
 function generateOrderNumber() {
@@ -19,8 +20,8 @@ function generateOrderNumber() {
 }
 
 // ── Checkout Modal
-// Receives `user` and `profile` from the parent Cart component (via useAuth)
-function CheckoutModal({ isOpen, onClose, cartItems, cartTotal, onSuccess, user, profile }) {
+// Receives `user`, `profile`, and `placeOrder` from the parent Cart component
+function CheckoutModal({ isOpen, onClose, cartItems, cartTotal, onSuccess, user, profile, onPlaceOrder }) {
   const [step, setStep] = useState(1); // 1 = details, 2 = success
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -68,19 +69,18 @@ function CheckoutModal({ isOpen, onClose, cartItems, cartTotal, onSuccess, user,
       const guestName       = user ? null : form.name.trim();
       const guestPhone      = user ? null : form.phone.trim();
 
-      const { error: insertErr } = await supabase.from('orders').insert({
+      // ── Use React Query placeOrder mutation — auto-invalidates orders cache ──
+      await onPlaceOrder({
         user_id: user?.id || null,
         order_number: num,
         items: orderItems,
-        total: orderTotal,
+        total: cartTotal + (cartTotal > 500 ? 0 : 49) + cartTotal * 0.05,
         address: deliveryAddress,
         status: 'Processing',
         special_notes: notes.trim() || null,
         guest_name: guestName || null,
         guest_phone: guestPhone || null,
       });
-
-      if (insertErr) throw insertErr;
 
       setOrderNumber(num);
       setStep(2);
@@ -324,7 +324,11 @@ function CheckoutModal({ isOpen, onClose, cartItems, cartTotal, onSuccess, user,
 // ── Main Cart Page ─────────────────────────────────────────────
 export default function Cart() {
   const { items, removeItem, updateQuantity, cartTotal, clearCart } = useCart();
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
+  // ── React Query: profile (shared cache — no extra DB call) ──
+  const { profile } = useProfileQuery(user?.id ?? null);
+  // ── React Query: placeOrder mutation — invalidates orders cache on success ──
+  const { placeOrder } = useOrdersQuery(user?.id ?? null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const navigate = useNavigate();
 
@@ -373,6 +377,7 @@ export default function Cart() {
             onSuccess={handleOrderSuccess}
             user={user}
             profile={profile}
+            onPlaceOrder={placeOrder}
           />
         )}
       </AnimatePresence>
