@@ -17,9 +17,9 @@ const footerLinks = {
     { label: 'Order Tracking', to: '/orders' },
   ],
   'Get In Touch': [
-    { label: '123 Baker Street, NY', icon: FiMapPin },
-    { label: 'hello@bakesterbakery.com', icon: FiMail },
-    { label: '+1 800 234 6413', icon: FiPhone },
+    { label: '22, Sonar Bangla, Belghoria, D.P. Nagar, Kolkata - 700056', icon: FiMapPin },
+    { label: 'ddas40007@gmail.com', icon: FiMail },
+    { label: '+91 82408 83586', icon: FiPhone },
   ],
 };
 
