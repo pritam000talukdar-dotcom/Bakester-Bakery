@@ -1,25 +1,56 @@
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import AnimatedSection from '../components/ui/AnimatedSection';
-import { FiMail, FiPhone, FiMapPin, FiInstagram, FiFacebook, FiTwitter } from 'react-icons/fi';
+import { FiMail, FiPhone, FiMapPin, FiInstagram, FiFacebook, FiTwitter, FiSend, FiCheckCircle, FiAlertCircle, FiLoader } from 'react-icons/fi';
 
 const contactInfo = [
-  { icon: FiMapPin, label: 'Our Bakery', value: '123 Baker Street, New York, NY 10001' },
-  { icon: FiPhone, label: 'Call Us', value: '+1 (800) 234-6413' },
-  { icon: FiMail, label: 'Email Us', value: 'hello@bakesterbakery.com' },
+  { icon: FiMapPin, label: 'Our Bakery', value: '22, Sonar Bangla, Belghoria, D.P. Nagar, Kolkata - 700056' },
+  { icon: FiPhone, label: 'Call Us', value: '+91 82408 83586' },
+  { icon: FiMail, label: 'Email Us', value: 'ddas40007@gmail.com' },
 ];
+
+const WEB3FORMS_KEY = import.meta.env.VITE_WEB3FORMS_KEY;
 
 export default function Contact() {
   const [form, setForm] = useState({ name: '', email: '', subject: '', message: '' });
-  const [sent, setSent] = useState(false);
+  const [status, setStatus] = useState('idle'); // idle | loading | success | error
+  const [errorMsg, setErrorMsg] = useState('');
 
   const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setSent(true);
-    setTimeout(() => setSent(false), 4000);
-    setForm({ name: '', email: '', subject: '', message: '' });
+    setStatus('loading');
+    setErrorMsg('');
+
+    try {
+      const response = await fetch('https://api.web3forms.com/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          access_key: WEB3FORMS_KEY,
+          name: form.name,
+          email: form.email,
+          subject: form.subject || 'New Contact Form Submission – Bakester Bakery',
+          message: form.message,
+          from_name: 'Bakester Bakery Contact Form',
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setStatus('success');
+        setForm({ name: '', email: '', subject: '', message: '' });
+        setTimeout(() => setStatus('idle'), 6000);
+      } else {
+        throw new Error(data.message || 'Something went wrong. Please try again.');
+      }
+    } catch (err) {
+      setStatus('error');
+      setErrorMsg(err.message || 'Failed to send message. Please try again.');
+      setTimeout(() => setStatus('idle'), 6000);
+    }
   };
 
   return (
@@ -151,13 +182,65 @@ export default function Contact() {
                     />
                   </div>
 
+                  {/* Feedback Banners */}
+                  <AnimatePresence>
+                    {status === 'success' && (
+                      <motion.div
+                        key="success"
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        className="flex items-center gap-3 p-4 bg-green-50 border border-green-200 rounded-2xl text-green-700"
+                      >
+                        <FiCheckCircle size={20} className="flex-shrink-0 text-green-500" />
+                        <p className="text-sm font-medium">
+                          🎉 Message sent! We'll get back to you very soon.
+                        </p>
+                      </motion.div>
+                    )}
+                    {status === 'error' && (
+                      <motion.div
+                        key="error"
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        className="flex items-center gap-3 p-4 bg-red-50 border border-red-200 rounded-2xl text-red-700"
+                      >
+                        <FiAlertCircle size={20} className="flex-shrink-0 text-red-500" />
+                        <p className="text-sm font-medium">{errorMsg}</p>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
                   <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
+                    whileHover={{ scale: status === 'loading' ? 1 : 1.02 }}
+                    whileTap={{ scale: status === 'loading' ? 1 : 0.98 }}
                     type="submit"
-                    className="btn-primary w-full py-4"
+                    disabled={status === 'loading'}
+                    className="btn-primary w-full py-4 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
                   >
-                    {sent ? '✓ Message Sent! We\'ll be in touch soon.' : 'Send Message'}
+                    {status === 'loading' ? (
+                      <>
+                        <motion.span
+                          animate={{ rotate: 360 }}
+                          transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
+                          className="inline-block"
+                        >
+                          <FiLoader size={18} />
+                        </motion.span>
+                        Sending…
+                      </>
+                    ) : status === 'success' ? (
+                      <>
+                        <FiCheckCircle size={18} />
+                        Message Sent!
+                      </>
+                    ) : (
+                      <>
+                        <FiSend size={18} />
+                        Send Message
+                      </>
+                    )}
                   </motion.button>
                 </motion.form>
               </AnimatedSection>
